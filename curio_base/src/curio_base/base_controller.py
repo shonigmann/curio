@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 # 
-# coding: latin-1
-# 
 #   Software License Agreement (BSD-3-Clause)
 #    
 #   Copyright (c) 2019 Rhys Mainwaring
@@ -37,7 +35,8 @@
 #   POSSIBILITY OF SUCH DAMAGE.
 # 
 
-ENABLE_ARDUINO_LX16A_DRIVER = True
+# Arduino driver is not truly ported to ROS2 ...
+ENABLE_ARDUINO_LX16A_DRIVER = False
 
 if ENABLE_ARDUINO_LX16A_DRIVER:
     # Load imports for the Arduino driver
@@ -54,14 +53,41 @@ from curio_msgs.msg import CurioServoEncoders
 from curio_msgs.msg import LX16AEncoder
 
 import math
-import rospy
+
+
+import rclpy
+from rclpy.node import Node
+from rclpy.duration import Duration
+
 from geometry_msgs.msg import Pose
 from geometry_msgs.msg import PoseWithCovariance
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import TwistWithCovariance
 from nav_msgs.msg import Odometry
-from tf.transformations import quaternion_from_euler
-from tf import TransformBroadcaster
+from tf2_ros.transform_broadcaster import TransformBroadcaster
+
+
+def quaternion_from_euler(roll, pitch, yaw):
+    """
+    From https://gist.github.com/salmagro/2e698ad4fbf9dae40244769c5ab74434
+    Converts euler roll, pitch, yaw to quaternion (w in last place)
+    quat = [x, y, z, w]
+    Bellow should be replaced when porting for ROS 2 Python tf_conversions is done.
+    """
+    cy = math.cos(yaw * 0.5)
+    sy = math.sin(yaw * 0.5)
+    cp = math.cos(pitch * 0.5)
+    sp = math.sin(pitch * 0.5)
+    cr = math.cos(roll * 0.5)
+    sr = math.sin(roll * 0.5)
+
+    q = [0] * 4
+    q[0] = cy * cp * cr + sy * sp * sr
+    q[1] = cy * cp * sr - sy * sp * cr
+    q[2] = sy * cp * sr + cy * sp * cr
+    q[3] = sy * cp * cr - cy * sp * sr
+
+    return q
 
 def degree(rad):
     ''' Convert an angle in degrees to radians
@@ -367,7 +393,7 @@ class Servo(object):
         else:
             return -1
 
-class AckermannOdometry(object):
+class AckermannOdometry(Node):
     ''' Odometry for the base controller (6 wheel Ackermann)
     
     This class based on its C++ equivalent in the
@@ -389,17 +415,12 @@ class AckermannOdometry(object):
         Paul Mathieu
     '''
 
-    def __init__(self, velocity_filter_window=10):
-        ''' Constructor
-
-        Parameters
-        ----------
-        velocity_filter_window : int
-            The size of the window used in the velocity filter,
-            has (default 10)
+    def __init__(self):
         '''
-
-        self._timestamp = rospy.Time() 
+        Constructor
+        '''
+        super().__init__('AckermannOdometry')
+        self._timestamp = self.get_clock().now().to_msg()
         self._heading = 0.0     # [rad]
         self._x       = 0.0     # [m]
         self._y       = 0.0     # [m]
@@ -419,7 +440,7 @@ class AckermannOdometry(object):
 
         Parameters
         ----------
-        time : rospy.Time
+        time : Node.get_clock().now().to_msg()
             The current time.
         '''        
 
@@ -433,7 +454,7 @@ class AckermannOdometry(object):
         wheel_servo_pos : list
             A list of 6 floats denoting the angular position of the
             6 wheel servos [rad].
-        time : rospy.Time
+        time : Node.get_clock().now().to_msg()
             The current time.
         '''
 
@@ -484,7 +505,7 @@ class AckermannOdometry(object):
         wheel_servo_pos : list
             A list of 2 floats denoting the angular position of the
             2 mid wheel servos [rad]
-        time : rospy.Time
+        time : Node.get_clock().now().to_msg()
             The current time.
         '''
 
@@ -654,7 +675,7 @@ class AckermannOdometry(object):
         self._y = self._y + lin_vel * math.sin(direction)
         self._heading = self._heading + ang_vel
 
-class BaseController(object):
+class BaseController(Node):
     ''' Mobile base controller for 6-wheel powered Ackerman steering.
 
     A 6-wheel Ackerman steering mobile base controller where each wheel
@@ -810,19 +831,19 @@ class BaseController(object):
             self._steer_servos = steer_servos
 
             # LX-16A servo driver - all parameters are required
-            rospy.loginfo('Opening connection to servo bus board...')
-            port      = rospy.get_param('~port')
-            baudrate  = rospy.get_param('~baudrate')
-            timeout   = rospy.get_param('~timeout')
+            rclpy.loginfo('Opening connection to servo bus board...')
+            port      = self.get_parameter('port')
+            baudrate  = self.get_parameter('baudrate')
+            timeout   = self.get_parameter('timeout')
             self._servo_driver = LX16ADriver()
             self._servo_driver.set_port(port)
             self._servo_driver.set_baudrate(baudrate)
             self._servo_driver.set_timeout(timeout)
             self._servo_driver.open()        
-            rospy.loginfo('is_open: {}'.format(self._servo_driver.is_open()))
-            rospy.loginfo('port: {}'.format(self._servo_driver.get_port()))
-            rospy.loginfo('baudrate: {}'.format(self._servo_driver.get_baudrate()))
-            rospy.loginfo('timeout: {:.2f}'.format(self._servo_driver.get_timeout()))
+            rclpy.loginfo('is_open: {}'.format(self._servo_driver.is_open()))
+            rclpy.loginfo('port: {}'.format(self._servo_driver.get_port()))
+            rclpy.loginfo('baudrate: {}'.format(self._servo_driver.get_baudrate()))
+            rclpy.loginfo('timeout: {:.2f}'.format(self._servo_driver.get_timeout()))
 
             # Publishers
             self._states_msg = CurioServoStates()
@@ -920,7 +941,7 @@ class BaseController(object):
             # Publish rover state
             self._states_pub.publish(self._states_msg)
 
-    class ArduinoServoDriver(object):
+    class ArduinoServoDriver(Node):
         ''' Servo driver abstraction
         '''
 
@@ -935,13 +956,13 @@ class BaseController(object):
             self._servo_pos_msg = CurioServoPositions()
             self._servo_pos_msg.wheel_positions = [0 for i in range(BaseController.NUM_WHEELS)]
             self._servo_pos_msg.steer_positions = [0 for i in range(BaseController.NUM_STEERS)]
-            self._servo_pos_sub = rospy.Subscriber('/servo/positions', CurioServoPositions, self._servo_pos_callback)
-
+            self._servo_pos_sub = self.create_subscription(CurioServoPositions, '/servo/positions', self._servo_pos_callback)
+            
             # Servo commands
             self._servo_cmd_msg = CurioServoCommands()
             self._servo_cmd_msg.wheel_commands = [0 for i in range(BaseController.NUM_WHEELS)]
             self._servo_cmd_msg.steer_commands = [0 for i in range(BaseController.NUM_STEERS)]
-            self._servo_cmd_pub = rospy.Publisher('/servo/commands', CurioServoCommands, queue_size=10)
+            self._servo_cmd_pub = self.create_publisher(CurioServoCommands, '/servo/commands', 10)
 
         def set_steer_command(self, i, position):
             ''' Set the servo steering command
@@ -987,8 +1008,8 @@ class BaseController(object):
     def __init__(self):
         ''' Constructor
         '''
-
-        rospy.loginfo('Initialising BaseController...')
+        super().__init__('BaseController')
+        rclpy.loginfo('Initialising BaseController...')
 
         # Wheel geometry on a flat surface - defaults
         self._wheel_radius                = 0.060
@@ -998,38 +1019,38 @@ class BaseController(object):
         self._back_wheel_lat_separation   = 0.047
         self._back_wheel_lon_separation   = 0.025
 
-        if rospy.has_param('~wheel_radius'):
-            self._wheel_radius = rospy.get_param('~wheel_radius')
-        if rospy.has_param('~mid_wheel_lat_separation'):
-            self._mid_wheel_lat_separation = rospy.get_param('~mid_wheel_lat_separation')
-        if rospy.has_param('~front_wheel_lat_separation'):
-            self._front_wheel_lat_separation = rospy.get_param('~front_wheel_lat_separation') 
-        if rospy.has_param('~front_wheel_lon_separation'):
-            self._front_wheel_lon_separation = rospy.get_param('~front_wheel_lon_separation')
-        if rospy.has_param('~back_wheel_lat_separation'):
-            self._back_wheel_lat_separation = rospy.get_param('~back_wheel_lat_separation')
-        if rospy.has_param('~back_wheel_lon_separation'):
-            self._back_wheel_lon_separation = rospy.get_param('~back_wheel_lon_separation')
+        if self.has_parameter('wheel_radius'):
+            self._wheel_radius = self.get_parameter('wheel_radius')
+        if self.has_parameter('mid_wheel_lat_separation'):
+            self._mid_wheel_lat_separation = self.get_parameter('mid_wheel_lat_separation')
+        if self.has_parameter('front_wheel_lat_separation'):
+            self._front_wheel_lat_separation = self.get_parameter('front_wheel_lat_separation') 
+        if self.has_parameter('front_wheel_lon_separation'):
+            self._front_wheel_lon_separation = self.get_parameter('front_wheel_lon_separation')
+        if self.has_parameter('back_wheel_lat_separation'):
+            self._back_wheel_lat_separation = self.get_parameter('back_wheel_lat_separation')
+        if self.has_parameter('back_wheel_lon_separation'):
+            self._back_wheel_lon_separation = self.get_parameter('back_wheel_lon_separation')
         
-        rospy.loginfo('wheel_radius: {:.2f}'.format(self._wheel_radius))
-        rospy.loginfo('mid_wheel_lat_separation: {:.2f}'.format(self._mid_wheel_lat_separation))
-        rospy.loginfo('front_wheel_lat_separation: {:.2f}'.format(self._front_wheel_lat_separation))
-        rospy.loginfo('front_wheel_lon_separation: {:.2f}'.format(self._front_wheel_lon_separation))
-        rospy.loginfo('back_wheel_lat_separation: {:.2f}'.format(self._back_wheel_lat_separation))
-        rospy.loginfo('back_wheel_lon_separation: {:.2f}'.format(self._back_wheel_lon_separation))
+        rclpy.loginfo('wheel_radius: {:.2f}'.format(self._wheel_radius))
+        rclpy.loginfo('mid_wheel_lat_separation: {:.2f}'.format(self._mid_wheel_lat_separation))
+        rclpy.loginfo('front_wheel_lat_separation: {:.2f}'.format(self._front_wheel_lat_separation))
+        rclpy.loginfo('front_wheel_lon_separation: {:.2f}'.format(self._front_wheel_lon_separation))
+        rclpy.loginfo('back_wheel_lat_separation: {:.2f}'.format(self._back_wheel_lat_separation))
+        rclpy.loginfo('back_wheel_lon_separation: {:.2f}'.format(self._back_wheel_lon_separation))
 
         # Odometry calibration parameters
         self._wheel_radius_multiplier               = 1.0
         self._mid_wheel_lat_separation_multiplier   = 1.0
 
-        if rospy.has_param('~wheel_radius_multiplier'):
-            self._wheel_radius_multiplier = rospy.get_param('~wheel_radius_multiplier')
-        if rospy.has_param('~mid_wheel_lat_separation_multiplier'):
-            self._mid_wheel_lat_separation_multiplier = rospy.get_param('~mid_wheel_lat_separation_multiplier')
+        if self.has_parameter('wheel_radius_multiplier'):
+            self._wheel_radius_multiplier = self.get_parameter('wheel_radius_multiplier')
+        if self.has_parameter('mid_wheel_lat_separation_multiplier'):
+            self._mid_wheel_lat_separation_multiplier = self.get_parameter('mid_wheel_lat_separation_multiplier')
 
-        rospy.loginfo('wheel_radius_multiplier: {:.2f}'
+        rclpy.loginfo('wheel_radius_multiplier: {:.2f}'
             .format(self._wheel_radius_multiplier))
-        rospy.loginfo('mid_wheel_lat_separation_multiplier: {:.2f}'
+        rclpy.loginfo('mid_wheel_lat_separation_multiplier: {:.2f}'
             .format(self._mid_wheel_lat_separation_multiplier))
 
         def calc_position(lon_label, lat_label):
@@ -1056,14 +1077,14 @@ class BaseController(object):
         # Utility for validating servo parameters
         def validate_servo_param(param, name, expected_length):
             if len(param) != expected_length:
-                rospy.logerr("Parameter '{}' must be an array length {}, got: {}"
+                rclpy.logerr("Parameter '{}' must be an array length {}, got: {}"
                     .format(name, expected_length, len(param)))
                 exit()
 
         # Wheel servo parameters - required
-        wheel_servo_ids           = rospy.get_param('~wheel_servo_ids')
-        wheel_servo_lon_labels    = rospy.get_param('~wheel_servo_lon_labels')
-        wheel_servo_lat_labels    = rospy.get_param('~wheel_servo_lat_labels')
+        wheel_servo_ids           = self.get_parameter('wheel_servo_ids')
+        wheel_servo_lon_labels    = self.get_parameter('wheel_servo_lon_labels')
+        wheel_servo_lat_labels    = self.get_parameter('wheel_servo_lat_labels')
 
         validate_servo_param(wheel_servo_ids, 'wheel_servo_ids', BaseController.NUM_WHEELS)
         validate_servo_param(wheel_servo_lon_labels, 'wheel_servo_lon_labels', BaseController.NUM_WHEELS)
@@ -1078,14 +1099,14 @@ class BaseController(object):
             servo = Servo(id, lon_label, lat_label, orientation)
             servo.position = calc_position(lon_label, lat_label)
             self._wheel_servos.append(servo)
-            rospy.loginfo('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
+            rclpy.loginfo('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
                 .format(servo.id, servo.lon_label, servo.lat_label, servo.orientation, servo.offset, servo.position))
 
         # Steer servo parameters - required
-        steer_servo_ids           = rospy.get_param('~steer_servo_ids')
-        steer_servo_lon_labels    = rospy.get_param('~steer_servo_lon_labels')
-        steer_servo_lat_labels    = rospy.get_param('~steer_servo_lat_labels')
-        steer_servo_angle_offsets = rospy.get_param('~steer_servo_angle_offsets')
+        steer_servo_ids           = self.get_parameter('steer_servo_ids')
+        steer_servo_lon_labels    = self.get_parameter('steer_servo_lon_labels')
+        steer_servo_lat_labels    = self.get_parameter('steer_servo_lat_labels')
+        steer_servo_angle_offsets = self.get_parameter('steer_servo_angle_offsets')
 
         validate_servo_param(steer_servo_ids, 'steer_servo_ids', BaseController.NUM_STEERS)
         validate_servo_param(steer_servo_lon_labels, 'steer_servo_lon_labels', BaseController.NUM_STEERS)
@@ -1102,11 +1123,12 @@ class BaseController(object):
             servo.offset = steer_servo_angle_offsets[i]
             servo.position = calc_position(lon_label, lat_label)
             self._steer_servos.append(servo)
-            rospy.loginfo('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
+            rclpy.loginfo('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
                 .format(servo.id, servo.lon_label, servo.lat_label, servo.orientation, servo.offset, servo.position))
 
         # Select whether to use the Python or Arduino servo driver
         if ENABLE_ARDUINO_LX16A_DRIVER:
+	    # TODO: TEST THIS IN ROS2
             self._servo_driver = BaseController.ArduinoServoDriver(
                 self._wheel_servos, self._steer_servos)
         else:
@@ -1114,19 +1136,19 @@ class BaseController(object):
                 self._wheel_servos, self._steer_servos)
 
         # Commanded velocity
-        self._cmd_vel_timeout = rospy.Duration(0.5)
-        self._cmd_vel_last_rec_time = rospy.get_rostime()
+        self._cmd_vel_timeout = Duration(seconds=0.5)
+        self._cmd_vel_last_rec_time = self.get_clock().now().to_msg()
         self._cmd_vel_msg = Twist()
-        self._cmd_vel_sub = rospy.Subscriber('/cmd_vel', Twist, self._cmd_vel_callback)
+        self._cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel', self._cmd_vel_callback)
 
         # Tuning / calibration
-        rospy.loginfo('Setting steer servo offsets...')
+        rclpy.loginfo('Setting steer servo offsets...')
         self.set_steer_servo_offsets()
 
         # Odometry
-        rospy.loginfo('Initialise odometry...')
+        rclpy.loginfo('Initialise odometry...')
         self._odometry = AckermannOdometry()
-        self._odometry.reset(rospy.get_rostime())
+        self._odometry.reset(self.get_clock().now().to_msg())
         self._odometry.set_wheel_params(
             self._wheel_radius,
             self._mid_wheel_lat_separation,
@@ -1134,19 +1156,20 @@ class BaseController(object):
             self._mid_wheel_lat_separation_multiplier)
 
         self._odom_msg = Odometry()
-        self._odom_pub = rospy.Publisher('/odom', Odometry, queue_size=10)
+        self._odom_pub = self.create_publisher(Odometry, '/odom', 10)
+
         self._init_odometry()
 
         # Encoder filters
-        self._classifier_window = rospy.get_param('~classifier_window', 10)
+        self._classifier_window = self.get_parameter('classifier_window', 10)
 
-        if not rospy.has_param('~classifier_filename'):
-            rospy.logerr('Missing parameter: classifier_filename. Exiting...')
-        self._classifier_filename = rospy.get_param('~classifier_filename')
+        if not self.has_parameter('classifier_filename'):
+            rclpy.logerr('Missing parameter: classifier_filename. Exiting...')
+        self._classifier_filename = self.get_parameter('classifier_filename')
 
-        if not rospy.has_param('~regressor_filename'):
-            rospy.logerr('Missing parameter: regressor_filename. Exiting...')
-        self._regressor_filename = rospy.get_param('~regressor_filename')
+        if not self.has_parameter('regressor_filename'):
+            rclpy.logerr('Missing parameter: regressor_filename. Exiting...')
+        self._regressor_filename = self.get_parameter('regressor_filename')
 
         self._wheel_servo_duty = [0 for i in range(BaseController.NUM_WHEELS)]
         self._encoder_filters = [
@@ -1167,11 +1190,11 @@ class BaseController(object):
 
         # Encoder messages (primarily for debugging)
         self._encoders_msg = CurioServoEncoders()
-        self._encoders_pub = rospy.Publisher('/servo/encoders', CurioServoEncoders, queue_size=10)
+        self._encoders_pub = self.create_publisher(CurioServoEncoders, '/servo/encoders', 10)
         self._wheel_encoders = [LX16AEncoder() for i in range(BaseController.NUM_WHEELS)] 
 
         # Transform
-        self._odom_broadcaster = TransformBroadcaster()
+        self._odom_broadcaster = TransformBroadcaster(self)
 
     def move(self, lin_vel, ang_vel):
         ''' Move the robot given linear and angular velocities
@@ -1195,11 +1218,11 @@ class BaseController(object):
         '''
 
         # Check for timeout
-        has_timed_out = rospy.get_rostime() > self._cmd_vel_last_rec_time + self._cmd_vel_timeout
+        has_timed_out = self.get_clock().now().to_msg() > self._cmd_vel_last_rec_time + self._cmd_vel_timeout
 
         # Calculate the turning radius and rate 
         r_p, omega_p = turning_radius_and_rate(lin_vel, ang_vel, self._mid_wheel_lat_separation)
-        rospy.logdebug('r_p: {:.2f}, omega_p: {:.2f}'.format(r_p, omega_p))
+        rclpy.logdebug('r_p: {:.2f}, omega_p: {:.2f}'.format(r_p, omega_p))
 
         # Calculate velocity and steering angle for each wheel
         wheel_vel_max = 0.0
@@ -1231,7 +1254,7 @@ class BaseController(object):
                 vel = 0.0 if has_timed_out else vel
                 wheel_vel_max = max(wheel_vel_max, math.fabs(vel))
                 wheel_lin_vel.append(vel)
-                # rospy.logdebug("id: {}, r: {:.2f}, wheel_lin_vel: {:.2f}".format(id, r, vel))
+                # rclpy.logdebug("id: {}, r: {:.2f}, wheel_lin_vel: {:.2f}".format(id, r, vel))
 
             for servo in self._steer_servos:
                 # Wheel position
@@ -1242,7 +1265,7 @@ class BaseController(object):
                 # Wheel angle
                 angle = math.atan2(x, (r_p - y))
                 steer_angle.append(angle)
-                # rospy.logdebug("id: {}, angle: {:.2f}".format(id, degree(angle)))
+                # rclpy.logdebug("id: {}, angle: {:.2f}".format(id, degree(angle)))
 
         # Apply speed limiter - preserving turning radius
         if wheel_vel_max > BaseController.LINEAR_VEL_MAX:
@@ -1252,7 +1275,7 @@ class BaseController(object):
 
         # Update steer servos
         # @TODO link the time of the move to the angle which the servos turn through
-        rospy.logdebug('Updating steer servos')
+        rclpy.logdebug('Updating steer servos')
         for i in range(BaseController.NUM_STEERS):
             servo = self._steer_servos[i]
 
@@ -1272,11 +1295,11 @@ class BaseController(object):
                 -BaseController.SERVO_ANGLE_MAX, BaseController.SERVO_ANGLE_MAX,
                 BaseController.SERVO_POS_MIN, BaseController.SERVO_POS_MAX))
 
-            rospy.logdebug('id: {}, angle: {:.2f}, servo_pos: {}'.format(servo.id, angle_deg, servo_pos))
+            rclpy.logdebug('id: {}, angle: {:.2f}, servo_pos: {}'.format(servo.id, angle_deg, servo_pos))
             self._servo_driver.set_steer_command(i, servo_pos)
 
         # Update wheel servos
-        rospy.logdebug('Updating wheel servos')
+        rclpy.logdebug('Updating wheel servos')
         for i in range(BaseController.NUM_WHEELS):
             servo = self._wheel_servos[i]
 
@@ -1289,7 +1312,7 @@ class BaseController(object):
                 -BaseController.SERVO_DUTY_MAX, BaseController.SERVO_DUTY_MAX))
 
             # Set servo speed
-            rospy.logdebug('id: {}, wheel_ang_vel: {:.2f}, servo_vel: {}'
+            rclpy.logdebug('id: {}, wheel_ang_vel: {:.2f}, servo_vel: {}'
                 .format(servo.id, wheel_ang_vel, duty))
             self._servo_driver.set_wheel_command(i, duty)
 
@@ -1310,14 +1333,14 @@ class BaseController(object):
         # Set the steering servo offsets to centre the corner wheels
         for i in range(BaseController.NUM_STEERS):
             servo = self._steer_servos[i]
-            rospy.loginfo('id: {}, offset: {}'.format(servo.id, servo.offset))
+            rclpy.loginfo('id: {}, offset: {}'.format(servo.id, servo.offset))
             self._servo_driver.set_angle_offset(i, servo.offset)
 
     def stop(self):
         ''' Stop all servos
         '''
 
-        rospy.loginfo('Stopping all servos')
+        rclpy.loginfo('Stopping all servos')
         for i in range(BaseController.NUM_WHEELS):
             self._servo_driver.set_wheel_command(i, 0)
 
@@ -1335,8 +1358,8 @@ class BaseController(object):
             The message for the commanded velocity.
         '''
 
-        rospy.logdebug('cmd_vel: linear: {}, angular: {}'.format(msg.linear.x, msg.angular.z))
-        self._cmd_vel_last_rec_time = rospy.get_rostime()
+        rclpy.logdebug('cmd_vel: linear: {}, angular: {}'.format(msg.linear.x, msg.angular.z))
+        self._cmd_vel_last_rec_time = self.get_clock().now().to_msg()
         self._cmd_vel_msg = msg
 
     def _servo_pos_callback(self, msg):
@@ -1459,7 +1482,7 @@ class BaseController(object):
             # Append to debug message
             msg = msg + "{}: {}, ".format(servo.id, count)
 
-        rospy.loginfo(msg)
+        rclpy.loginfo(msg)
         return servo_positions
 
     def _update_mid_wheel_servo_positions(self, time):
@@ -1486,7 +1509,7 @@ class BaseController(object):
         servo_positions[Servo.LEFT]  = left_pos
         servo_positions[Servo.RIGHT] = right_pos
 
-        rospy.logdebug("time: {}, left: {}, right: {}".format(time, left_pos, right_pos))
+        rclpy.logdebug("time: {}, left: {}, right: {}".format(time, left_pos, right_pos))
 
         return servo_positions
 
@@ -1564,7 +1587,7 @@ class BaseController(object):
             The current time.
         '''
 
-        # rospy.loginfo('x: {:.2f}, y: {:.2f}, heading: {:.2f}, lin_vel: {:.2f}, ang_vel: {:.2f}'
+        # rclpy.loginfo('x: {:.2f}, y: {:.2f}, heading: {:.2f}, lin_vel: {:.2f}, ang_vel: {:.2f}'
         #     .format(
         #         self._odometry.get_x(),
         #         self._odometry.get_y(),

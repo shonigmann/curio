@@ -1,13 +1,26 @@
-## ! DO NOT MANUALLY INVOKE THIS setup.py, USE CATKIN INSTEAD
-## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
+from setuptools import setup
 
-from distutils.core import setup
-from catkin_pkg.python_setup import generate_distutils_setup
+package_name = 'curio_base'
 
-# fetch values from package.xml
-setup_args = generate_distutils_setup(
-    packages=['curio_base'],
-    package_dir={'': 'src'}
+setup(
+    name=package_name,
+    version='0.2.3',
+    packages=[package_name],
+    data_files=[
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
+        ('share/' + package_name, ['package.xml']),
+    ],
+    install_requires=['setuptools'],
+    zip_safe=True,
+    maintainer='Manuel Fernández',
+    maintainer_email='manolofc@gmail.com',
+    description='ROS2 Compatible Hardware controllers for Curio, a Swappy Rover',
+    license='BSD-3-Clause',
+    tests_require=['pytest'],
+    entry_points={
+        'console_scripts': [
+            'curio_base_controller = curio_base.curio_base_controller:main'
+        ],
+    },
 )
-
-setup(**setup_args)
