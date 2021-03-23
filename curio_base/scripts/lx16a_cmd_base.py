@@ -38,67 +38,67 @@
 ''' Generate /cmd_vel samples using a random walk constrained to [-1, 1]
 '''
 
-import math
-import random
-
 import rclpy
+from rclpy.node import Node
+from rclpy.duration import Duration
+from geometry_msgs.msg import Twist
 
-from lx16a_cmd_base import LX16A_CMD_BASE
-from lx16a_cmd_base import STARTUP_CMD_VEL, SAMPLE_DURATION, STARTUP_DURATION
 
-class LX16A_CMD_VEL_RANDOM(LX16A_CMD_BASE):
+CONTROL_FREQUENCY = 50      # Control loop frequency [Hz]
+MU = 0.0                    # Random walk mean
+SIGMA = 0.8                 # Random walk stddev
+
+STARTUP_CMD_VEL = 0.25      # velocity during startup [m/s]
+STARTUP_DURATION = 10.0     # startup duration [s]
+SAMPLE_DURATION = 20.0      # Duration to run at a given level
+
+class LX16A_CMD_BASE(Node):
 
     def __init__(self,name, _sample_dur=SAMPLE_DURATION, _start_dur=STARTUP_DURATION):
         '''
         Constructor
         '''
-        super().__init__(name, _sample_dur, _start_dur)
-        
+        super().__init__(name)
+
+        # Publisher
+        self.cmd_vel_msg = Twist()
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+
+        # Parameters
+        self.mu = MU
+        self.sigma = SIGMA
+        self.control_frequency = CONTROL_FREQUENCY
+        self.sample_dur = Duration(seconds=_sample_dur)
+        self.start_dur = Duration(seconds=_start_dur)
+
+        self.init_t = 0.0
+        self.prev_t = 0.0
+        self.curr_t = 0.0
+        self.prev_x = 0.0
+        self.curr_x = 0.0
+
+    def start_loop(self):
+        self.get_logger().info('Starting control loop at {} Hz'.format(self.control_frequency))
+        self.control_timer = self.create_timer( 1.0 / self.control_frequency, self.update)
+
     def update(self):
+        pass
 
-        # Startup
-        self.curr_t = self.get_clock().now().to_msg()
-        if self.curr_t - self.init_t < self.start_dur:
-            self.cmd_vel_msg.linear.x = STARTUP_CMD_VEL
-            self.cmd_vel_pub.publish(self.cmd_vel_msg)
-            return
-
-        # Random Normal
-        z = random.gauss(self.mu, self.sigma)
-
-        # Time increment
-        dt = 1.0 / self.control_frequency
-
-        # Brownian increment
-        dW = math.sqrt(dt) * z
-
-        # Increments
-        dx = self.mu * dt + self.sigma * dW
-
-        # Constrained path 
-        self.curr_x = self.prev_x + dx
-        if self.curr_x > 1.0 or self.curr_x < -1.0:
-            self.curr_x = self.prev_x - dx 
-        self.prev_x = self.curr_x
-
-        # Update message and publish
-        self.cmd_vel_msg.linear.x = self.curr_x
-        self.cmd_vel_pub.publish(self.cmd_vel_msg)
-
+    
 def main(args=None):    
     rclpy.init(args=args)    
 
-    lx_cmd_vel_random = LX16A_CMD_VEL_RANDOM('lx_16a_cmd_vel_random')
+    lx_base = LX16A_CMD_BASE('LX16A_CMD_BASE')
     
-    lx_cmd_vel_random.get_logger().info('Starting LX-16A CMD vel_random')
+    lx_base.get_logger().info('Starting LX-16A CMD BASE')
 
     # Start the control loop
-    lx_cmd_vel_random.start_loop()
+    lx_base.start_loop()
 
     # And sleep ...
-    rclpy.spin(lx_cmd_vel_random)
+    rclpy.spin(lx_base)
 
-    lx_cmd_vel_random.get_logger().info('Shutting down LX-16A vel_random')
+    lx_base.get_logger().info('Shutting down LX-16A CMD BASE')
 
 
 if __name__ == '__main__':

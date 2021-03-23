@@ -48,7 +48,8 @@ https://www.instructables.com/id/Overview-the-Arduino-sketch-uploading-process-a
 '''
 
 import curio_base.lx16a_driver
-import rospy
+import rclpy
+from rclpy.duration import Duration
 import serial
 
 SERVO_SERIAL_PORT   = '/dev/cu.wchusbserialfd5110'
@@ -68,11 +69,11 @@ class LX16AFailsafe(object):
         self._servo_driver.set_timeout(SERVO_TIMEOUT)
         self._servo_driver.open()
         
-        rospy.loginfo('Open connection to servo bus board')
-        rospy.loginfo('is_open: {}'.format(self._servo_driver.is_open()))
-        rospy.loginfo('port: {}'.format(self._servo_driver.get_port()))
-        rospy.loginfo('baudrate: {}'.format(self._servo_driver.get_baudrate()))
-        rospy.loginfo('timeout: {}'.format(self._servo_driver.get_timeout()))
+        node.get_logger().info('Open connection to servo bus board')
+        node.get_logger().info('is_open: {}'.format(self._servo_driver.is_open()))
+        node.get_logger().info('port: {}'.format(self._servo_driver.get_port()))
+        node.get_logger().info('baudrate: {}'.format(self._servo_driver.get_baudrate()))
+        node.get_logger().info('timeout: {}'.format(self._servo_driver.get_timeout()))
 
     def update(self, event):
         ''' Update will stop all wheel servos.
@@ -88,7 +89,7 @@ class LX16AFailsafe(object):
 
 if __name__ == '__main__':
     rospy.init_node('lx16a_failsafe')
-    rospy.loginfo('Starting Lewansoul LX-16A failsafe')
+    node.get_logger().info('Starting Lewansoul LX-16A failsafe')
 
     # Servo failsafe
     lx16a_failsafe = LX16AFailsafe()
@@ -96,9 +97,9 @@ if __name__ == '__main__':
     # Start the control loop
     control_frequency = CONTROL_FREQUENCY
 
-    rospy.loginfo('Starting control loop at {} Hz'.format(control_frequency))
+    node.get_logger().info('Starting control loop at {} Hz'.format(control_frequency))
     control_timer = rospy.Timer(
-        rospy.Duration(1.0 / control_frequency),
+        Duration(1.0 / control_frequency),
         lx16a_failsafe.update)
 
     rospy.spin()

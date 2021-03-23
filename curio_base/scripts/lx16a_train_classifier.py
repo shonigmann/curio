@@ -42,7 +42,7 @@ import joblib
 import math
 import numpy as np
 import pandas as pd
-import rospy
+import rclpy
 
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import cross_validate
@@ -54,36 +54,36 @@ from sklearn.tree import DecisionTreeClassifier
 
 if __name__ == '__main__':
     rospy.init_node('lx16a_train_classifier')
-    rospy.loginfo('Starting LX-16A classifier training')
+    node.get_logger().info('Starting LX-16A classifier training')
 
     # Load parameters
     check_accuracy_score = rospy.get_param('~check_accuracy_score', False)
     check_cross_validation_score = rospy.get_param('~check_cross_validation_score', False)
 
     if not rospy.has_param('~dataset_filename'):
-        rospy.logerr('Missing parameter: dataset_filename. Exiting...')
+        rclpy.logerr('Missing parameter: dataset_filename. Exiting...')
         exit()
     dataset_filename = rospy.get_param('~dataset_filename')
 
     if not rospy.has_param('~classifier_filename'):
-        rospy.logerr('Missing parameter: classifier_filename. Exiting...')
+        rclpy.logerr('Missing parameter: classifier_filename. Exiting...')
         exit()
     classifier_filename = rospy.get_param('~classifier_filename')
 
     # Load data from CSV 
-    rospy.loginfo('Loading dataset: {}'.format(dataset_filename))
+    node.get_logger().info('Loading dataset: {}'.format(dataset_filename))
     df_data = pd.read_csv(dataset_filename, index_col=0, compression='zip')
 
     # Extract numpy arrays
-    rospy.loginfo('Selecting features and targets')
+    node.get_logger().info('Selecting features and targets')
     df_X = df_data.iloc[:,:-1]
     df_y = df_data.iloc[:,-1:]
     X = df_X.values
     y = df_y.values.ravel()
-    rospy.loginfo("X.shape: {}, y.shape {}".format(X.shape, y.shape))
+    node.get_logger().info("X.shape: {}, y.shape {}".format(X.shape, y.shape))
 
     # Create training and test datasets
-    rospy.loginfo('Creating training and test datasets')
+    node.get_logger().info('Creating training and test datasets')
     df_X_train, df_X_test, df_y_train, df_y_test = train_test_split(df_X, df_y, random_state=0)
     X_train = df_X_train.values
     y_train = df_y_train.values.ravel()
@@ -91,29 +91,29 @@ if __name__ == '__main__':
     y_test = df_y_test.values.ravel()
 
     # Create a pipeline for the decision tree classifier
-    rospy.loginfo('Creating decision tree pipeline')
+    node.get_logger().info('Creating decision tree pipeline')
     clf_pipe = make_pipeline(
         StandardScaler(),
         DecisionTreeClassifier(random_state=0)
     )
 
     # Fit the whole pipeline
-    rospy.loginfo('Fitting model to training dataset')
+    node.get_logger().info('Fitting model to training dataset')
     clf_pipe.fit(X_train, y_train)
 
     # Check accuracy score
     if check_accuracy_score:
-        rospy.loginfo('Calculating accuracy score...')
+        node.get_logger().info('Calculating accuracy score...')
         score = accuracy_score(clf_pipe.predict(X_test), y_test)
-        rospy.loginfo('Accuracy score: {}'.format(score))
+        node.get_logger().info('Accuracy score: {}'.format(score))
  
     # Cross validation score
     if check_cross_validation_score:
-        rospy.loginfo('Calculating cross validation scores...')
+        node.get_logger().info('Calculating cross validation scores...')
         cv = cross_validate(clf_pipe, X, y, cv=5)
-        rospy.loginfo('CV test score:  {}'.format(cv['test_score']))
+        node.get_logger().info('CV test score:  {}'.format(cv['test_score']))
 
     # Persist using joblib (better for larger models)
-    rospy.loginfo('Writing classifier: {}'.format(classifier_filename))
+    node.get_logger().info('Writing classifier: {}'.format(classifier_filename))
     joblib.dump(clf_pipe, classifier_filename, protocol=2)
 

@@ -40,11 +40,15 @@
 ''' Lewansoul LX-16A encoder filter.
 '''
 
-from curio_base.lx16a_encoder_filter import LX16AEncoderFilter
 import math
 import pandas as pd
-import rospy
+
+import rclpy
+from rclpy.node import Node
+from rclpy.duration import Duration
 from std_msgs.msg import Int64
+
+from curio_base.lx16a_encoder_filter import LX16AEncoderFilter
 
 # Constants
 WINDOW = 10
@@ -56,7 +60,8 @@ RAW_DATA_FILENAME = "./data/lx16a_raw_data_05.csv"
 CLASSIFIER_FILENAME = "./data/lx16a_tree_classifier.joblib"
 REGRESSOR_FILENAME  = "./data/lx16a_tree_regressor.joblib"
 
-if __name__ == '__main__':
+def main(args=None):    
+    rclpy.init(args=args) 
     ''' A test node for the LX-16A encoder filter.
 
     This example replays a raw data file containing ros_time, duty, pos, count
@@ -64,12 +69,12 @@ if __name__ == '__main__':
     The encoder count is published to the topic /encoder.
     The data is processes as fast as possible, so timestamps are not correct. 
     '''
-    rospy.init_node('lx_16a_encoder_filter_test')
-    rospy.loginfo('Lewansoul LX-16A encoder filter (test)')
+    node = Node('lx_16a_encoder_filter_test')
+    node.get_logger().info('Lewansoul LX-16A encoder filter (test)')
 
     # Publisher
     encoder_msg = Int64()
-    encoder_pub = rospy.Publisher('/encoder', Int64, queue_size=10)
+    encoder_pub = node.create_publisher(Int64, '/encoder', 10) 
 
     # Encoder filter
     filter = LX16AEncoderFilter(
@@ -79,10 +84,10 @@ if __name__ == '__main__':
 
     # Load data from CSV and assign names to column headings
     df = pd.read_csv(RAW_DATA_FILENAME, header=None, names=['ros_time', 'duty', 'pos', 'count'])
-    rospy.loginfo('num. samples = {}'.format(len(df)))
-    rospy.loginfo('shape = {}'.format(df.shape))
+    node.get_logger().info('num. samples = {}'.format(len(df)))
+    node.get_logger().info('shape = {}'.format(df.shape))
 
-    start_time = rospy.Time(0, df.loc[0]['ros_time'])
+    start_time = node.get_clock().now().to_msg()
 
     for i in range(0, len(df)):
     # for i in range(0, 1000):
@@ -90,18 +95,22 @@ if __name__ == '__main__':
         row = df.loc[i]
 
         # Time since start [s]
-        dt = (rospy.Time(0, row['ros_time']) - start_time).to_sec()
+        now_time = node.get_clock().now().to_msg()
+        dt = (now_time - start_time).to_sec()
 
         # Update the filter
-        filter.update(rospy.Time(0, row['ros_time']), row['duty'], row['pos'])
+        filter.update(now_time, row['duty'], row['pos'])
         servo_pos, is_valid = filter.get_servo_pos()
         count               = filter.get_count()
         revolutions         = filter.get_revolutions()
 
-        rospy.logdebug('time: {:.2f}, duty: {}, pos: {}, is_valid: {}'
+        node.get_logger().debug('time: {:.2f}, duty: {}, pos: {}, is_valid: {}'
             .format(dt, row['duty'], servo_pos, is_valid))
 
-        rospy.loginfo('time: {:.2f}, duty: {}, count: {}, rev: {}'
+        node.get_logger().info('time: {:.2f}, duty: {}, count: {}, rev: {}'
             .format(dt, row['duty'], count, revolutions))
 
         encoder_pub.publish(count)
+
+if __name__ == '__main__':
+    main()

@@ -39,35 +39,35 @@
 '''
 
 from curio_base.base_controller import MeanWindowFilter
-import rospy
-
+import rclpy
+from rclpy.duration import Duration
 
 if __name__ == '__main__':
     rospy.init_node('lx16a_mean_filter_test')
-    rospy.loginfo('Starting mean filter test')
+    node.get_logger().info('Starting mean filter test')
 
     # Create the filter
     filter = MeanWindowFilter(window=5)
 
-    rospy.loginfo('got: {}, expect: {}'.format(filter.get_mean(), 0.0))
+    node.get_logger().info('got: {}, expect: {}'.format(filter.get_mean(), 0.0))
 
     filter.update(1.0)    
-    rospy.loginfo('got: {}, expect: {}'.format(filter.get_mean(), 1.0/5.0))
+    node.get_logger().info('got: {}, expect: {}'.format(filter.get_mean(), 1.0/5.0))
 
     filter.update(2.0)    
-    rospy.loginfo('got: {}, expect: {}'.format(filter.get_mean(), 2.0/5.0))
+    node.get_logger().info('got: {}, expect: {}'.format(filter.get_mean(), 2.0/5.0))
 
     filter.update(3.0)    
-    rospy.loginfo('got: {}, expect: {}'.format(filter.get_mean(), 6.0/5.0))
+    node.get_logger().info('got: {}, expect: {}'.format(filter.get_mean(), 6.0/5.0))
 
     filter.update(4.0)    
-    rospy.loginfo('got: {}, expect: {}'.format(filter.get_mean(), 10.0/5.0))
+    node.get_logger().info('got: {}, expect: {}'.format(filter.get_mean(), 10.0/5.0))
 
     filter.update(5.0)    
-    rospy.loginfo('got: {}, expect: {}'.format(filter.get_mean(), 15.0/5.0))
+    node.get_logger().info('got: {}, expect: {}'.format(filter.get_mean(), 15.0/5.0))
 
     filter.update(5.0)    
-    rospy.loginfo('got: {}, expect: {}'.format(filter.get_mean(), 19.0/5.0))
+    node.get_logger().info('got: {}, expect: {}'.format(filter.get_mean(), 19.0/5.0))
 
     filter.update(5.0)    
-    rospy.loginfo('got: {}, expect: {}'.format(filter.get_mean(), 22.0/5.0))
+    node.get_logger().info('got: {}, expect: {}'.format(filter.get_mean(), 22.0/5.0))

@@ -83,13 +83,17 @@
 '''
 
 import csv
-import curio_base.lx16a_driver
-import rospy
 import serial
+
+import rclpy
+from rclpy.node import Node
+from rclpy.duration import Duration
 from std_msgs.msg import Int64
 from geometry_msgs.msg import Twist
 
-SERVO_SERIAL_PORT   = '/dev/cu.wchusbserialfd5110'
+import curio_base.lx16a_driver
+
+SERVO_SERIAL_PORT   = '/dev/ttyUSB0'
 SERVO_BAUDRATE      = 115200
 SERVO_TIMEOUT       = 1.0 # [s]
 SERVO_ID            = 111
@@ -103,10 +107,14 @@ REFERENCE_ENCODER_CPR = 4096  # Counts per revolution for the reference logger (
 def pos_to_deg(pos):
     return pos * 240.0 / 1000.0
 
-class LX16AEncoderLogger(object):
+class LX16AEncoderLogger(Node):
     DATA_BUFFER_SIZE = 100
 
     def __init__(self):
+        ''' Constructor
+        '''
+
+        super().__init__('lx16a_encoder_logger')
         # Properties
         self.filename = OUT_DATA_FILENAME
         self._data = []
@@ -114,27 +122,27 @@ class LX16AEncoderLogger(object):
 
         # Subscriptions
         self._encoder_msg = Int64()
-        self._encoder_sub = rospy.Subscriber('/encoder', Int64, self.encoder_callback)
+        self._encoder_sub = self.create_subscription(Int64, '/encoder', self.encoder_callback, 10)
 
         self._cmd_vel_msg = Twist()
-        self._cmd_vel_sub = rospy.Subscriber('/cmd_vel', Twist, self.cmd_vel_callback)
+        self._cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
 
         # Initialise servo driver
-        self._servo_driver = curio_base.lx16a_driver.LX16ADriver()
+        self._servo_driver = curio_base.lx16a_driver.LX16ADriver(self)
         self._servo_driver.set_port(SERVO_SERIAL_PORT)
         self._servo_driver.set_baudrate(SERVO_BAUDRATE)
         self._servo_driver.set_timeout(SERVO_TIMEOUT)
         self._servo_driver.open()
         
-        rospy.loginfo('Open connection to servo bus board')
-        rospy.loginfo('is_open: {}'.format(self._servo_driver.is_open()))
-        rospy.loginfo('port: {}'.format(self._servo_driver.get_port()))
-        rospy.loginfo('baudrate: {}'.format(self._servo_driver.get_baudrate()))
-        rospy.loginfo('timeout: {}'.format(self._servo_driver.get_timeout()))
+        self.get_logger().info('Open connection to servo bus board')
+        self.get_logger().info('is_open: {}'.format(self._servo_driver.is_open()))
+        self.get_logger().info('port: {}'.format(self._servo_driver.get_port()))
+        self.get_logger().info('baudrate: {}'.format(self._servo_driver.get_baudrate()))
+        self.get_logger().info('timeout: {}'.format(self._servo_driver.get_timeout()))
 
     def shutdown(self):
         # Stop servo
-        rospy.loginfo('Stop servo')
+        self.get_logger().info('Stop servo')
         self._servo_driver.motor_mode_write(SERVO_ID, 0)
 
         # Write remaining data
@@ -158,10 +166,10 @@ class LX16AEncoderLogger(object):
 
         pos = self._servo_driver.pos_read(SERVO_ID)
         count = self._encoder_msg.data
-        rospy.loginfo("duty: {}, pos: {}, count: {}".format(duty, pos, count % REFERENCE_ENCODER_CPR))
+        self.get_logger().info("duty: {}, pos: {}, count: {}".format(duty, pos, count % REFERENCE_ENCODER_CPR))
 
         # Buffer data
-        self._data.append([rospy.get_rostime(), duty, pos, count])
+        self._data.append([self.get_clock().now().to_msg(), duty, pos, count])
         self._data_size = self._data_size + 1
         if (self._data_size == LX16AEncoderLogger.DATA_BUFFER_SIZE):
             self.write_data()
@@ -177,26 +185,29 @@ class LX16AEncoderLogger(object):
             self._data_size = 0
             self._data = []
 
-if __name__ == '__main__':
-    rospy.init_node('lx16a_encoder_logger')
-    rospy.loginfo('Starting Lewansoul LX-16A encoder logger')
+
+def main(args=None):    
+    rclpy.init(args=args)    
 
     # Servo encoder logger
     encoder_logger = LX16AEncoderLogger()
+    encoder_logger.get_logger().info('Starting Lewansoul LX-16A encoder logger')
 
     # Register shutdown behaviour
     def shutdown_callback():
-        rospy.loginfo('Shutdown lx16a_encoder_logger...')
+        encoder_logger.get_logger().info('Shutdown lx16a_encoder_logger...')
         encoder_logger.shutdown()
 
-    rospy.on_shutdown(shutdown_callback)
+    rclpy.get_default_context().on_shutdown(shutdown_callback)
 
     # Start the control loop
     control_frequency = CONTROL_FREQUENCY
 
-    rospy.loginfo('Starting control loop at {} Hz'.format(control_frequency))
-    control_timer = rospy.Timer(
-        rospy.Duration(1.0 / control_frequency),
-        encoder_logger.update)
+    encoder_logger.get_logger().info('Starting control loop at {} Hz'.format(control_frequency))
+    control_timer = encoder_logger.create_timer( 1.0 / control_frequency, encoder_logger.update)
 
-    rospy.spin()
+    rclpy.spin(encoder_logger)
+
+
+if __name__ == '__main__':
+    main()

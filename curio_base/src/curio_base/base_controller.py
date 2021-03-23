@@ -54,15 +54,11 @@ from curio_msgs.msg import LX16AEncoder
 
 import math
 
-
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
 
-from geometry_msgs.msg import Pose
-from geometry_msgs.msg import PoseWithCovariance
-from geometry_msgs.msg import Twist
-from geometry_msgs.msg import TwistWithCovariance
+from geometry_msgs.msg import Pose, PoseWithCovariance, Vector3, Twist, TwistWithCovariance, Quaternion, TransformStamped
 from nav_msgs.msg import Odometry
 from tf2_ros.transform_broadcaster import TransformBroadcaster
 
@@ -87,7 +83,7 @@ def quaternion_from_euler(roll, pitch, yaw):
     q[2] = sy * cp * sr + cy * sp * cr
     q[3] = sy * cp * cr - cy * sp * sr
 
-    return q
+    return Quaternion(q[0], q[1], q[2], q[3])
 
 def degree(rad):
     ''' Convert an angle in degrees to radians
@@ -819,37 +815,46 @@ class BaseController(Node):
     NUM_WHEELS = 6
     NUM_STEERS = 4
 
-    class PythonServoDriver(object):
+    class PythonServoDriver(Node):
         ''' Servo driver abstraction
         '''
         
-        def __init__(self, wheel_servos, steer_servos):
+        def __init__(self):
             ''' Constructor
             '''
-            
-            self._wheel_servos = wheel_servos
-            self._steer_servos = steer_servos
+
+            super().__init__('PythonServoDriver')
 
             # LX-16A servo driver - all parameters are required
-            rclpy.loginfo('Opening connection to servo bus board...')
+            self.get_logger().info('Opening connection to servo bus board...')
             port      = self.get_parameter('port')
             baudrate  = self.get_parameter('baudrate')
             timeout   = self.get_parameter('timeout')
-            self._servo_driver = LX16ADriver()
+            self._servo_driver = LX16ADriver(self)
             self._servo_driver.set_port(port)
             self._servo_driver.set_baudrate(baudrate)
             self._servo_driver.set_timeout(timeout)
             self._servo_driver.open()        
-            rclpy.loginfo('is_open: {}'.format(self._servo_driver.is_open()))
-            rclpy.loginfo('port: {}'.format(self._servo_driver.get_port()))
-            rclpy.loginfo('baudrate: {}'.format(self._servo_driver.get_baudrate()))
-            rclpy.loginfo('timeout: {:.2f}'.format(self._servo_driver.get_timeout()))
+            self.get_logger().info('is_open: {}'.format(self._servo_driver.is_open()))
+            self.get_logger().info('port: {}'.format(self._servo_driver.get_port()))
+            self.get_logger().info('baudrate: {}'.format(self._servo_driver.get_baudrate()))
+            self.get_logger().info('timeout: {:.2f}'.format(self._servo_driver.get_timeout()))
 
             # Publishers
             self._states_msg = CurioServoStates()
-            self._states_pub = rospy.Publisher('servo/states', CurioServoStates, queue_size=10)
+            self._states_pub = self.create_publisher(CurioServoStates, 'servo/states', 10)
+
+            self._servo_cmd_pub = self.create_publisher(CurioServoCommands, '/servo/commands', 10)
             self._wheel_states = [LX16AState() for x in range(BaseController.NUM_WHEELS)]
             self._steer_states = [LX16AState() for x in range(BaseController.NUM_STEERS)]
+
+        def set_servos(self, wheel_servos, steer_servos):
+            ''' 
+                Removed from constructor as we now extend a rclpy Node
+            '''
+            
+            self._wheel_servos = wheel_servos
+            self._steer_servos = steer_servos
 
         def set_steer_command(self, i, position):
             ''' Set the servo steering command
@@ -898,7 +903,7 @@ class BaseController(Node):
 
             Parameters
             ----------
-            time : rospy.Time
+            time : Node.get_clock().now().to_msg()
                 The current time.
             '''
 
@@ -926,7 +931,7 @@ class BaseController(Node):
 
             Parameters
             ----------
-            time : rospy.Time
+            time : Node.get_clock().now().to_msg()
                 The current time.
             '''
 
@@ -945,24 +950,27 @@ class BaseController(Node):
         ''' Servo driver abstraction
         '''
 
-        def __init__(self, wheel_servos, steer_servos):
+        def __init__(self):
             ''' Constructor
             '''
 
-            self._wheel_servos = wheel_servos
-            self._steer_servos = steer_servos
+            super().__init__('ArduinoServoDriver')
 
             # Servo positions
             self._servo_pos_msg = CurioServoPositions()
             self._servo_pos_msg.wheel_positions = [0 for i in range(BaseController.NUM_WHEELS)]
             self._servo_pos_msg.steer_positions = [0 for i in range(BaseController.NUM_STEERS)]
-            self._servo_pos_sub = self.create_subscription(CurioServoPositions, '/servo/positions', self._servo_pos_callback)
+            self._servo_pos_sub = self.create_subscription(CurioServoPositions, '/servo/positions', self._servo_pos_callback, 10)
             
             # Servo commands
             self._servo_cmd_msg = CurioServoCommands()
             self._servo_cmd_msg.wheel_commands = [0 for i in range(BaseController.NUM_WHEELS)]
             self._servo_cmd_msg.steer_commands = [0 for i in range(BaseController.NUM_STEERS)]
             self._servo_cmd_pub = self.create_publisher(CurioServoCommands, '/servo/commands', 10)
+
+        def set_servos(self, wheel_servos, steer_servos):
+            self._wheel_servos = wheel_servos
+            self._steer_servos = steer_servos
 
         def set_steer_command(self, i, position):
             ''' Set the servo steering command
@@ -1008,8 +1016,10 @@ class BaseController(Node):
     def __init__(self):
         ''' Constructor
         '''
+
         super().__init__('BaseController')
-        rclpy.loginfo('Initialising BaseController...')
+
+        self.get_logger().info('Initialising BaseController...')
 
         # Wheel geometry on a flat surface - defaults
         self._wheel_radius                = 0.060
@@ -1032,12 +1042,12 @@ class BaseController(Node):
         if self.has_parameter('back_wheel_lon_separation'):
             self._back_wheel_lon_separation = self.get_parameter('back_wheel_lon_separation')
         
-        rclpy.loginfo('wheel_radius: {:.2f}'.format(self._wheel_radius))
-        rclpy.loginfo('mid_wheel_lat_separation: {:.2f}'.format(self._mid_wheel_lat_separation))
-        rclpy.loginfo('front_wheel_lat_separation: {:.2f}'.format(self._front_wheel_lat_separation))
-        rclpy.loginfo('front_wheel_lon_separation: {:.2f}'.format(self._front_wheel_lon_separation))
-        rclpy.loginfo('back_wheel_lat_separation: {:.2f}'.format(self._back_wheel_lat_separation))
-        rclpy.loginfo('back_wheel_lon_separation: {:.2f}'.format(self._back_wheel_lon_separation))
+        self.get_logger().info('wheel_radius: {:.2f}'.format(self._wheel_radius))
+        self.get_logger().info('mid_wheel_lat_separation: {:.2f}'.format(self._mid_wheel_lat_separation))
+        self.get_logger().info('front_wheel_lat_separation: {:.2f}'.format(self._front_wheel_lat_separation))
+        self.get_logger().info('front_wheel_lon_separation: {:.2f}'.format(self._front_wheel_lon_separation))
+        self.get_logger().info('back_wheel_lat_separation: {:.2f}'.format(self._back_wheel_lat_separation))
+        self.get_logger().info('back_wheel_lon_separation: {:.2f}'.format(self._back_wheel_lon_separation))
 
         # Odometry calibration parameters
         self._wheel_radius_multiplier               = 1.0
@@ -1048,9 +1058,9 @@ class BaseController(Node):
         if self.has_parameter('mid_wheel_lat_separation_multiplier'):
             self._mid_wheel_lat_separation_multiplier = self.get_parameter('mid_wheel_lat_separation_multiplier')
 
-        rclpy.loginfo('wheel_radius_multiplier: {:.2f}'
+        self.get_logger().info('wheel_radius_multiplier: {:.2f}'
             .format(self._wheel_radius_multiplier))
-        rclpy.loginfo('mid_wheel_lat_separation_multiplier: {:.2f}'
+        self.get_logger().info('mid_wheel_lat_separation_multiplier: {:.2f}'
             .format(self._mid_wheel_lat_separation_multiplier))
 
         def calc_position(lon_label, lat_label):
@@ -1077,7 +1087,7 @@ class BaseController(Node):
         # Utility for validating servo parameters
         def validate_servo_param(param, name, expected_length):
             if len(param) != expected_length:
-                rclpy.logerr("Parameter '{}' must be an array length {}, got: {}"
+                self.get_logger().err("Parameter '{}' must be an array length {}, got: {}"
                     .format(name, expected_length, len(param)))
                 exit()
 
@@ -1099,7 +1109,7 @@ class BaseController(Node):
             servo = Servo(id, lon_label, lat_label, orientation)
             servo.position = calc_position(lon_label, lat_label)
             self._wheel_servos.append(servo)
-            rclpy.loginfo('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
+            self.get_logger().info('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
                 .format(servo.id, servo.lon_label, servo.lat_label, servo.orientation, servo.offset, servo.position))
 
         # Steer servo parameters - required
@@ -1123,30 +1133,30 @@ class BaseController(Node):
             servo.offset = steer_servo_angle_offsets[i]
             servo.position = calc_position(lon_label, lat_label)
             self._steer_servos.append(servo)
-            rclpy.loginfo('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
+            self.get_logger().info('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
                 .format(servo.id, servo.lon_label, servo.lat_label, servo.orientation, servo.offset, servo.position))
 
         # Select whether to use the Python or Arduino servo driver
         if ENABLE_ARDUINO_LX16A_DRIVER:
-	    # TODO: TEST THIS IN ROS2
-            self._servo_driver = BaseController.ArduinoServoDriver(
-                self._wheel_servos, self._steer_servos)
+	    # @TODO: TEST THIS IN ROS2
+            self._servo_driver = BaseController.ArduinoServoDriver()                
         else:
-            self._servo_driver = BaseController.PythonServoDriver(
-                self._wheel_servos, self._steer_servos)
+            self._servo_driver = BaseController.PythonServoDriver()
+
+        self._servo_driver.set_servos(self._wheel_servos, self._steer_servos)
 
         # Commanded velocity
         self._cmd_vel_timeout = Duration(seconds=0.5)
         self._cmd_vel_last_rec_time = self.get_clock().now().to_msg()
         self._cmd_vel_msg = Twist()
-        self._cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel', self._cmd_vel_callback)
+        self._cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel', self._cmd_vel_callback, 10)
 
         # Tuning / calibration
-        rclpy.loginfo('Setting steer servo offsets...')
+        self.get_logger().info('Setting steer servo offsets...')
         self.set_steer_servo_offsets()
 
         # Odometry
-        rclpy.loginfo('Initialise odometry...')
+        self.get_logger().info('Initialise odometry...')
         self._odometry = AckermannOdometry()
         self._odometry.reset(self.get_clock().now().to_msg())
         self._odometry.set_wheel_params(
@@ -1161,22 +1171,19 @@ class BaseController(Node):
         self._init_odometry()
 
         # Encoder filters
-        self._classifier_window = self.get_parameter('classifier_window', 10)
+        self._classifier_window = self.get_parameter_or('classifier_window', 10)
 
         if not self.has_parameter('classifier_filename'):
-            rclpy.logerr('Missing parameter: classifier_filename. Exiting...')
+            self.get_logger().err('Missing parameter: classifier_filename. Exiting...')
         self._classifier_filename = self.get_parameter('classifier_filename')
 
         if not self.has_parameter('regressor_filename'):
-            rclpy.logerr('Missing parameter: regressor_filename. Exiting...')
+            self.get_logger().err('Missing parameter: regressor_filename. Exiting...')
         self._regressor_filename = self.get_parameter('regressor_filename')
 
         self._wheel_servo_duty = [0 for i in range(BaseController.NUM_WHEELS)]
         self._encoder_filters = [
-            LX16AEncoderFilter(
-                classifier_filename = self._classifier_filename,
-                regressor_filename = self._regressor_filename,
-                window=self._classifier_window)
+            LX16AEncoderFilter(self)
             for i in range(BaseController.NUM_WHEELS)
         ]
 
@@ -1222,7 +1229,7 @@ class BaseController(Node):
 
         # Calculate the turning radius and rate 
         r_p, omega_p = turning_radius_and_rate(lin_vel, ang_vel, self._mid_wheel_lat_separation)
-        rclpy.logdebug('r_p: {:.2f}, omega_p: {:.2f}'.format(r_p, omega_p))
+        self.get_logger().debug('r_p: {:.2f}, omega_p: {:.2f}'.format(r_p, omega_p))
 
         # Calculate velocity and steering angle for each wheel
         wheel_vel_max = 0.0
@@ -1254,7 +1261,7 @@ class BaseController(Node):
                 vel = 0.0 if has_timed_out else vel
                 wheel_vel_max = max(wheel_vel_max, math.fabs(vel))
                 wheel_lin_vel.append(vel)
-                # rclpy.logdebug("id: {}, r: {:.2f}, wheel_lin_vel: {:.2f}".format(id, r, vel))
+                # self.get_logger().debug("id: {}, r: {:.2f}, wheel_lin_vel: {:.2f}".format(id, r, vel))
 
             for servo in self._steer_servos:
                 # Wheel position
@@ -1265,7 +1272,7 @@ class BaseController(Node):
                 # Wheel angle
                 angle = math.atan2(x, (r_p - y))
                 steer_angle.append(angle)
-                # rclpy.logdebug("id: {}, angle: {:.2f}".format(id, degree(angle)))
+                # self.get_logger().debug("id: {}, angle: {:.2f}".format(id, degree(angle)))
 
         # Apply speed limiter - preserving turning radius
         if wheel_vel_max > BaseController.LINEAR_VEL_MAX:
@@ -1275,7 +1282,7 @@ class BaseController(Node):
 
         # Update steer servos
         # @TODO link the time of the move to the angle which the servos turn through
-        rclpy.logdebug('Updating steer servos')
+        self.get_logger().debug('Updating steer servos')
         for i in range(BaseController.NUM_STEERS):
             servo = self._steer_servos[i]
 
@@ -1295,11 +1302,11 @@ class BaseController(Node):
                 -BaseController.SERVO_ANGLE_MAX, BaseController.SERVO_ANGLE_MAX,
                 BaseController.SERVO_POS_MIN, BaseController.SERVO_POS_MAX))
 
-            rclpy.logdebug('id: {}, angle: {:.2f}, servo_pos: {}'.format(servo.id, angle_deg, servo_pos))
+            self.get_logger().debug('id: {}, angle: {:.2f}, servo_pos: {}'.format(servo.id, angle_deg, servo_pos))
             self._servo_driver.set_steer_command(i, servo_pos)
 
         # Update wheel servos
-        rclpy.logdebug('Updating wheel servos')
+        self.get_logger().debug('Updating wheel servos')
         for i in range(BaseController.NUM_WHEELS):
             servo = self._wheel_servos[i]
 
@@ -1312,7 +1319,7 @@ class BaseController(Node):
                 -BaseController.SERVO_DUTY_MAX, BaseController.SERVO_DUTY_MAX))
 
             # Set servo speed
-            rclpy.logdebug('id: {}, wheel_ang_vel: {:.2f}, servo_vel: {}'
+            self.get_logger().debug('id: {}, wheel_ang_vel: {:.2f}, servo_vel: {}'
                 .format(servo.id, wheel_ang_vel, duty))
             self._servo_driver.set_wheel_command(i, duty)
 
@@ -1333,14 +1340,14 @@ class BaseController(Node):
         # Set the steering servo offsets to centre the corner wheels
         for i in range(BaseController.NUM_STEERS):
             servo = self._steer_servos[i]
-            rclpy.loginfo('id: {}, offset: {}'.format(servo.id, servo.offset))
+            self.get_logger().info('id: {}, offset: {}'.format(servo.id, servo.offset))
             self._servo_driver.set_angle_offset(i, servo.offset)
 
     def stop(self):
         ''' Stop all servos
         '''
 
-        rclpy.loginfo('Stopping all servos')
+        self.get_logger().info('Stopping all servos')
         for i in range(BaseController.NUM_WHEELS):
             self._servo_driver.set_wheel_command(i, 0)
 
@@ -1358,7 +1365,7 @@ class BaseController(Node):
             The message for the commanded velocity.
         '''
 
-        rclpy.logdebug('cmd_vel: linear: {}, angular: {}'.format(msg.linear.x, msg.angular.z))
+        self.get_logger().debug('cmd_vel: linear: {}, angular: {}'.format(msg.linear.x, msg.angular.z))
         self._cmd_vel_last_rec_time = self.get_clock().now().to_msg()
         self._cmd_vel_msg = msg
 
@@ -1373,21 +1380,16 @@ class BaseController(Node):
 
         self._servo_pos_msg = msg
 
-    def update(self, event):
+    def update(self):
         ''' Callback for the control loop.
         
         This to be called at the control loop frequency by the node's
-        main function, usually managed by a rospy.Timer.
+        main function, usually managed by a rclpy.create_timer
 
-        Parameters
-        ----------
-        event : rospy.Timer
-            A rospy.Timer event.
-            See http://wiki.ros.org/rospy/Overview/Time for details.
         '''
 
         # Get the current real time (just before this function was called)
-        time = event.current_real
+        time = self.get_clock().now().to_msg()
 
         # Read and publish
         self._update_odometry(time)
@@ -1400,21 +1402,17 @@ class BaseController(Node):
         # Write commands
         self.move(self._cmd_vel_msg.linear.x, self._cmd_vel_msg.angular.z)
 
-    def update_state(self, event):
+    def update_state(self):
         ''' Callback for the status update loop.
         
         This to be called at the status update frequency by the node's
-        main function, usually managed by a rospy.Timer.
+        main function, usually managed by a rclpy.create_timer.
 
-        Parameters
-        ----------
-        event : rospy.Timer
-            A rospy.Timer event.
         '''
 
         # Get the current real time (just before this function
         # was called)
-        time = event.current_real
+        time = self.get_clock().now().to_msg()
 
         self._update_state(time)
         self._publish_states(time)
@@ -1455,7 +1453,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : rospy.Time
+        time : self.get_clock().now().to_msg()
             The current time.
 
         Returns
@@ -1482,7 +1480,7 @@ class BaseController(Node):
             # Append to debug message
             msg = msg + "{}: {}, ".format(servo.id, count)
 
-        rclpy.loginfo(msg)
+        self.get_logger().info(msg)
         return servo_positions
 
     def _update_mid_wheel_servo_positions(self, time):
@@ -1491,7 +1489,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : rospy.Time
+        time : self.get_clock().now().to_msg()
             The current time.
 
         Returns
@@ -1509,7 +1507,7 @@ class BaseController(Node):
         servo_positions[Servo.LEFT]  = left_pos
         servo_positions[Servo.RIGHT] = right_pos
 
-        rclpy.logdebug("time: {}, left: {}, right: {}".format(time, left_pos, right_pos))
+        self.get_logger().debug("time: {}, left: {}, right: {}".format(time, left_pos, right_pos))
 
         return servo_positions
 
@@ -1518,7 +1516,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : rospy.Time
+        time : self.get_clock().now().to_msg()
             The current time.
         i : int
             The index of the i-th wheel.
@@ -1583,11 +1581,11 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : rospy.Time
+        time : self.get_clock().now().to_msg()
             The current time.
         '''
 
-        # rclpy.loginfo('x: {:.2f}, y: {:.2f}, heading: {:.2f}, lin_vel: {:.2f}, ang_vel: {:.2f}'
+        # self.get_logger().info('x: {:.2f}, y: {:.2f}, heading: {:.2f}, lin_vel: {:.2f}, ang_vel: {:.2f}'
         #     .format(
         #         self._odometry.get_x(),
         #         self._odometry.get_y(),
@@ -1617,7 +1615,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : rospy.Time
+        time : self.get_clock().now().to_msg()
             The current time.
         '''
 
@@ -1636,17 +1634,21 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : rospy.Time
+        time : self.get_clock().now().to_msg()
             The current time.
         '''
 
         # Broadcast the transform from 'odom' to 'base_link'
-        self._odom_broadcaster.sendTransform(
-            (self._odometry.get_x(), self._odometry.get_y(), 0.0),
-            quaternion_from_euler(0.0, 0.0, self._odometry.get_heading()),
-            time,
-            'base_link',
-            'odom')
+        newTF = TransformStamped()
+        newTF.header.stamp = time  # time
+        newTF.header.frame_id = 'odom' #  parent  
+        newTF.child_frame_id = 'base_link'  # child
+        newTF.transform.translation.x = self._odometry.get_x()
+        newTF.transform.translation.y = self._odometry.get_y()
+        newTF.transform.translation.z = 0.0  # translation 
+        newTF.transform.rotation = quaternion_from_euler(0.0, 0.0, self._odometry.get_heading())  #  rotation
+            
+        self._odom_broadcaster.sendTransform(newTF)
 
     # @IMPLEMENT
     def _update_state(self, time):
@@ -1654,7 +1656,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : rospy.Time
+        time : Node.get_clock().now().to_msg()
             The current time.
         '''
 
@@ -1666,7 +1668,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : rospy.Time
+        time : self.get_clock().now().to_msg()
             The current time.
         '''
 
@@ -1674,6 +1676,11 @@ class BaseController(Node):
 
     def _publish_encoders(self, time):
         ''' Publish the encoder state
+
+        Parameters
+        ----------
+        time : self.get_clock().now().to_msg()
+            The current time.
         '''
         # Update the encoder messages
         for i in range(BaseController.NUM_WHEELS):

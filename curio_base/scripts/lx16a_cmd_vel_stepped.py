@@ -39,85 +39,72 @@
 '''
 
 import math
-import numpy as np
 import random
-import rospy
-from geometry_msgs.msg import Twist
+import numpy as np
 
-CONTROL_FREQUENCY = 50      # Control loop frequency [Hz]
+import rclpy
+from rclpy.duration import Duration
 
-SAMPLE_DURATION   = 20.0    # Duration to run at a given level
+from lx16a_cmd_base import LX16A_CMD_BASE, STARTUP_DURATION, SAMPLE_DURATION, STARTUP_CMD_VEL
 
-STARTUP_CMD_VEL   = 0.25    # velocity during startup [m/s]
 STARTUP_DURATION  = 2.0     # startup duration [s]
 
-# Publisher
-cmd_vel_msg = Twist()
-cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
 
-# Parameters
-control_frequency = CONTROL_FREQUENCY
+class LX16A_CMD_VEL_STEP(LX16A_CMD_BASE):
 
-# Create array of evenly spaced levels in [-1, 1]
-level = np.concatenate((np.linspace(-1, -0.15, 18), np.linspace(0.15, 1.0, 18)))
-level_idx = 0
-level_idx_inc = 1
+    def __init__(self,name, _sample_dur=SAMPLE_DURATION, _start_dur=STARTUP_DURATION):
+        '''
+        Constructor
+        '''
+        super().__init__(name, _sample_dur, _start_dur)
 
-init_t = None
-prev_t = None
-curr_t = None
+        # Create array of evenly spaced levels in [-1, 1]
+        self.level = np.concatenate((np.linspace(-1, -0.15, 18), np.linspace(0.15, 1.0, 18)))
+        self.level_idx = 0
+        self.level_idx_inc = 1
+        self.init_t = self.get_clock().now().to_msg()
+        self.prev_t = self.get_clock().now().to_msg()
 
-prev_x = 0.0
-curr_x = 0.0
+    def update(self):
 
-def update(event):
-    global control_frequency
-    global level
-    global level_idx
-    global level_idx_inc
-    global init_t
-    global prev_t
-    global curr_t
-    global prev_x
-    global curr_x
+        # Startup
+        self.curr_t = self.get_clock().now().to_msg()
+        if self.curr_t - self.init_t < self.start_dur:
+            self.cmd_vel_msg.linear.x = STARTUP_CMD_VEL
+            self.cmd_vel_pub.publish(self.cmd_vel_msg)
+            return
 
-    # Startup
-    curr_t = rospy.get_rostime()
-    if curr_t < init_t + rospy.Duration(STARTUP_DURATION):
-        cmd_vel_msg.linear.x = STARTUP_CMD_VEL
-        cmd_vel_pub.publish(cmd_vel_msg)
-        return
+        # Update amplitude
+        if self.curr_t - self.prev_t > self.sample_dur:
+            self.prev_t = self.curr_t
 
-    # Update level
-    if curr_t - prev_t > rospy.Duration(SAMPLE_DURATION):
-        prev_t = curr_t
+            # Constrained path - reverse direction when we hit the boundaries
+            self.level_idx = self.level_idx + self.level_idx_inc
+            if self.level_idx == len(self.level) or self.level_idx == -1:
+                self.level_idx_inc = -1 * self.level_idx_inc
+                self.level_idx = self.level_idx + 2 * self.level_idx_inc
+                self.curr_x = self.level[self.level_idx]
 
-        # Constrained path - reverse direction when we hit the boundaries
-        level_idx = level_idx + level_idx_inc
-        if level_idx == len(level) or level_idx == -1:
-            level_idx_inc = -1 * level_idx_inc
-            level_idx = level_idx + 2 * level_idx_inc
-            curr_x = level[level_idx]
-
-        curr_x = level[level_idx]
+            self.curr_x = self.level[self.level_idx]
 
 
-    # Update message and publish
-    cmd_vel_msg.linear.x = curr_x
-    cmd_vel_pub.publish(cmd_vel_msg)
+        # Update message and publish
+        self.cmd_vel_msg.linear.x = self.curr_x
+        self.cmd_vel_pub.publish(self.cmd_vel_msg)
 
-if __name__ == '__main__':
-    rospy.init_node('lx_16a_cmd_vel_stepped')
-    rospy.loginfo('Starting LX-16A cmd_vel stepped')
+def main(args=None):    
+    rclpy.init(args=args)  
+
+    lx_cmd_vel_step = LX16A_CMD_VEL_STEP('lx_16a_cmd_vel_stepped', 20, 2.0)
+    lx_cmd_vel_step.get_logger().info('Starting LX-16A cmd_vel stepped')
 
     # Start the control loop
-    init_t = rospy.get_rostime()
-    prev_t = rospy.get_rostime()
-    rospy.loginfo('Starting control loop at {} Hz'.format(control_frequency))
-    control_timer = rospy.Timer(
-        rospy.Duration(1.0 / control_frequency),
-        update)
+    lx_cmd_vel_step.start_loop()
 
-    rospy.spin()
+    # And sleep ...
+    rclpy.spin(lx_cmd_vel_step)
 
+    lx_cmd_vel_step.get_logger().info('Shutting down LX-16A vel_stepped')
 
+if __name__ == '__main__':
+    main()

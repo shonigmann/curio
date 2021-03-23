@@ -39,10 +39,11 @@
 '''
 
 from curio_base.lx16a_driver import LX16ADriver
-import rospy
+import rclpy
+from rclpy.node import Node
 import serial
 
-class BaseFailsafe(object):
+class BaseFailsafe(Node):
     ''' Failsafe for the mobile base
 
     This class connects to the Lewansoul Servo BusLinker board
@@ -105,42 +106,38 @@ class BaseFailsafe(object):
     def __init__(self):
         ''' Constructor
         '''
-
-        rospy.loginfo('Initialising BaseFailsafe...')
+        super().__init__('BaseFailsafe')
+        self.get_logger().info('Initialising BaseFailsafe...')
 
         # LX-16A servo driver - all parameters are required
-        rospy.loginfo('Opening connection to servo bus board...')
-        port      = rospy.get_param('~port')
-        baudrate  = rospy.get_param('~baudrate')
-        timeout   = rospy.get_param('~timeout')
-        self._servo_driver = LX16ADriver()
+        self.get_logger().info('Opening connection to servo bus board...')
+        port      = self.has_parameter('port')
+        baudrate  = self.has_parameter('baudrate')
+        timeout   = self.has_parameter('timeout')
+        self._servo_driver = LX16ADriver(self)
         self._servo_driver.set_port(port)
         self._servo_driver.set_baudrate(baudrate)
         self._servo_driver.set_timeout(timeout)
         self._servo_driver.open()        
-        rospy.loginfo('is_open: {}'.format(self._servo_driver.is_open()))
-        rospy.loginfo('port: {}'.format(self._servo_driver.get_port()))
-        rospy.loginfo('baudrate: {}'.format(self._servo_driver.get_baudrate()))
-        rospy.loginfo('timeout: {:.2f}'.format(self._servo_driver.get_timeout()))
+        self.get_logger().info('is_open: {}'.format(self._servo_driver.is_open()))
+        self.get_logger().info('port: {}'.format(self._servo_driver.get_port()))
+        self.get_logger().info('baudrate: {}'.format(self._servo_driver.get_baudrate()))
+        self.get_logger().info('timeout: {:.2f}'.format(self._servo_driver.get_timeout()))
 
         # Utility for validating servo parameters
         def validate_servo_param(param, name, expected_length):
             if len(param) != expected_length:
-                rospy.logerr("Parameter '{}' must be an array length {}, got: {}"
+                self.get_logger().err("Parameter '{}' must be an array length {}, got: {}"
                     .format(name, expected_length, len(param)))
-                exit()
+                rclpy.shutdown()
 
         # Wheel servo parameters - required
-        self._wheel_servo_ids = rospy.get_param('~wheel_servo_ids')
+        self._wheel_servo_ids = self.has_parameter('wheel_servo_ids')
         validate_servo_param(self._wheel_servo_ids, 'wheel_servo_ids', BaseFailsafe.NUM_WHEELS)
 
-    def update(self, event):
-        ''' Update will stop all wheel servos.
-
-        Parameters
-        ----------
-        event : rospy.Timer
-            A rospy.Timer event.
+    def update(self):
+        ''' 
+        Update will stop all wheel servos.
         '''
         for i in range(BaseFailsafe.NUM_WHEELS):
             servo_id = self._wheel_servo_ids[i]

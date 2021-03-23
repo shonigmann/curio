@@ -42,7 +42,7 @@ import joblib
 import math
 import numpy as np
 import pandas as pd
-import rospy
+import rclpy
 
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import cross_validate
@@ -54,31 +54,31 @@ from sklearn.tree import DecisionTreeRegressor
 
 if __name__ == '__main__':
     rospy.init_node('lx16a_train_regressor')
-    rospy.loginfo('Starting LX-16A regressor training')
+    node.get_logger().info('Starting LX-16A regressor training')
 
     # Load parameters
     check_accuracy_score = rospy.get_param('~check_accuracy_score', False)
 
     if not rospy.has_param('~labeldata_filename'):
-        rospy.logerr('Missing parameter: labeldata_filename. Exiting...')
+        rclpy.logerr('Missing parameter: labeldata_filename. Exiting...')
         exit()
     labeldata_filename = rospy.get_param('~labeldata_filename')
 
     if not rospy.has_param('~dataset_filename'):
-        rospy.logerr('Missing parameter: dataset_filename. Exiting...')
+        rclpy.logerr('Missing parameter: dataset_filename. Exiting...')
         exit()
     dataset_filename = rospy.get_param('~dataset_filename')
 
     if not rospy.has_param('~regressor_filename'):
-        rospy.logerr('Missing parameter: regressor_filename. Exiting...')
+        rclpy.logerr('Missing parameter: regressor_filename. Exiting...')
         exit()
     regressor_filename = rospy.get_param('~regressor_filename')
 
     # Load data from CSV 
-    rospy.loginfo('Loading labelled data: {}'.format(labeldata_filename))
+    node.get_logger().info('Loading labelled data: {}'.format(labeldata_filename))
     df_label = pd.read_csv(labeldata_filename, index_col=0, compression='zip')
 
-    rospy.loginfo('Loading dataset: {}'.format(dataset_filename))
+    node.get_logger().info('Loading dataset: {}'.format(dataset_filename))
     df_data = pd.read_csv(dataset_filename, index_col=0, compression='zip')
 
     # Create a boolean index to filter the data on the target (label = 0)
@@ -87,15 +87,15 @@ if __name__ == '__main__':
     df_data  = df_data[selector == 0]
 
     # Extract numpy arrays
-    rospy.loginfo('Selecting features and targets')
+    node.get_logger().info('Selecting features and targets')
     df_X = df_data.iloc[:,:-1]
     df_y = df_label['encoder']
     X = df_X.values
     y = df_y.values.ravel()
-    rospy.loginfo("X.shape: {}, y.shape {}".format(X.shape, y.shape))
+    node.get_logger().info("X.shape: {}, y.shape {}".format(X.shape, y.shape))
 
     # Create training and test datasets
-    rospy.loginfo('Creating training and test datasets')
+    node.get_logger().info('Creating training and test datasets')
     df_X_train, df_X_test, df_y_train, df_y_test = train_test_split(df_X, df_y, random_state=0)
     X_train = df_X_train.values
     y_train = df_y_train.values.ravel()
@@ -103,22 +103,22 @@ if __name__ == '__main__':
     y_test = df_y_test.values.ravel()
 
     # Create a pipeline for the decision tree regressor
-    rospy.loginfo('Creating decision tree pipeline')
+    node.get_logger().info('Creating decision tree pipeline')
     scaler = StandardScaler()
     regressor = DecisionTreeRegressor(random_state=0)
     reg_pipe = make_pipeline(scaler, regressor)
 
     # Fit the whole pipeline
-    rospy.loginfo('Fitting model to training dataset')
+    node.get_logger().info('Fitting model to training dataset')
     reg_pipe.fit(X_train, y_train)
 
     # Check accuracy score
     # if check_accuracy_score:
-    #     rospy.loginfo('Calculating accuracy score...')
+    #     node.get_logger().info('Calculating accuracy score...')
     #     score = accuracy_score(clf_pipe.predict(X_test), y_test)
-    #     rospy.loginfo('Accuracy score: {}'.format(score))
+    #     node.get_logger().info('Accuracy score: {}'.format(score))
  
     # Persist using joblib (better for larger models)
-    rospy.loginfo('Writing regressor: {}'.format(regressor_filename))
+    node.get_logger().info('Writing regressor: {}'.format(regressor_filename))
     joblib.dump(reg_pipe, regressor_filename, protocol=2)
 
