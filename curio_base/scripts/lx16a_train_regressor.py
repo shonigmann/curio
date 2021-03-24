@@ -42,7 +42,6 @@ import joblib
 import math
 import numpy as np
 import pandas as pd
-import rclpy
 
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import cross_validate
@@ -52,27 +51,32 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeRegressor
 
-if __name__ == '__main__':
-    rospy.init_node('lx16a_train_regressor')
+import rclpy
+from rclpy.node import Node
+
+def get_param_or_die(node,param_name):
+    if not node.has_parameter(param_name):
+        node.get_logger().error('Missing parameter: ' + param_name + '. Exiting...')
+        rclpy.shutdown()
+    val = node.get_parameter(param_name)._value
+    return val
+
+def get_param_default(node,param_name,default):
+    if not node.has_parameter(param_name):
+        val = default
+    else:
+        val = node.get_parameter(param_name)._value
+    return val
+
+def main(args=None):  
+    rclpy.init(args=args) 
+    node = Node('lx16a_train_regressor')
     node.get_logger().info('Starting LX-16A regressor training')
 
     # Load parameters
-    check_accuracy_score = rospy.get_param('~check_accuracy_score', False)
-
-    if not rospy.has_param('~labeldata_filename'):
-        rclpy.logerr('Missing parameter: labeldata_filename. Exiting...')
-        exit()
-    labeldata_filename = rospy.get_param('~labeldata_filename')
-
-    if not rospy.has_param('~dataset_filename'):
-        rclpy.logerr('Missing parameter: dataset_filename. Exiting...')
-        exit()
-    dataset_filename = rospy.get_param('~dataset_filename')
-
-    if not rospy.has_param('~regressor_filename'):
-        rclpy.logerr('Missing parameter: regressor_filename. Exiting...')
-        exit()
-    regressor_filename = rospy.get_param('~regressor_filename')
+    labeldata_filename = get_param_or_die(node, 'labeldata_filename')
+    dataset_filename = get_param_or_die(node, 'dataset_filename')
+    regressor_filename = get_param_or_die(node, 'regressor_filename')
 
     # Load data from CSV 
     node.get_logger().info('Loading labelled data: {}'.format(labeldata_filename))
@@ -122,3 +126,6 @@ if __name__ == '__main__':
     node.get_logger().info('Writing regressor: {}'.format(regressor_filename))
     joblib.dump(reg_pipe, regressor_filename, protocol=2)
 
+
+if __name__ == '__main__':
+    main()

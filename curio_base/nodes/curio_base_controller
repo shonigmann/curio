@@ -52,20 +52,9 @@ def main(args=None):
     base_controller = curio_base.base_controller.BaseController()
     base_controller.get_logger().info('Starting Curio base controller')
     
-    # Register shutdown behaviour
-    def shutdown_callback():
-        node.get_logger().info('Shutdown Curio base controller...')
-        base_controller.shutdown()
-
-    rclpy.get_default_context().on_shutdown(shutdown_callback)
-
     # Start the control loop
-    control_frequency = 10.0
-    if base_controller.has_parameter('control_frequency'):
-        control_frequency = base_controller.get_parameter('control_frequency')._value
+    base_controller.start_loop()
 
-    base_controller.get_logger().info('Starting control loop at {} Hz'.format(control_frequency))
-    control_timer = base_controller.create_timer( 1.0 / control_frequency, base_controller.update)
 
     # Wait for shutdown
     rclpy.spin(base_controller)

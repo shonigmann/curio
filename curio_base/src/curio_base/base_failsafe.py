@@ -135,6 +135,10 @@ class BaseFailsafe(Node):
         self._wheel_servo_ids = self.has_parameter('wheel_servo_ids')
         validate_servo_param(self._wheel_servo_ids, 'wheel_servo_ids', BaseFailsafe.NUM_WHEELS)
 
+        self.control_frequency = 20.0
+        if self.has_parameter('failsafe_control_frequency'):
+            self.control_frequency = self.get_parameter('failsafe_control_frequency')._value
+            
     def update(self):
         ''' 
         Update will stop all wheel servos.
@@ -143,3 +147,7 @@ class BaseFailsafe(Node):
             servo_id = self._wheel_servo_ids[i]
             self._servo_driver.motor_mode_write(servo_id, 0)
 
+
+    def start_loop(self):
+        self.get_logger().info('Starting control loop at {} Hz'.format(self.control_frequency))
+        self.control_timer = self.create_timer( 1.0 / self.control_frequency, self.update)

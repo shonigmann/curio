@@ -39,11 +39,14 @@
 '''
 
 from curio_base.base_controller import MeanWindowFilter
+
 import rclpy
+from rclpy.node import Node
 from rclpy.duration import Duration
 
-if __name__ == '__main__':
-    rospy.init_node('lx16a_mean_filter_test')
+def main(args=None):    
+    rclpy.init(args=args)  
+    node = Node('lx16a_mean_filter_test')
     node.get_logger().info('Starting mean filter test')
 
     # Create the filter
@@ -71,3 +74,8 @@ if __name__ == '__main__':
 
     filter.update(5.0)    
     node.get_logger().info('got: {}, expect: {}'.format(filter.get_mean(), 22.0/5.0))
+
+    node.get_logger().info('Finished. Bye')
+
+if __name__ == '__main__':
+    main()

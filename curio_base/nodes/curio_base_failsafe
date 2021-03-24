@@ -47,21 +47,17 @@ import curio_base.base_failsafe
 
 def main(args=None):
     rclpy.init(args=args)
-    node.get_logger().info('Starting Curio base failsafe')
 
     # Base failsafe
     base_failsafe = curio_base.base_failsafe.BaseFailsafe()
+    base_failsafe.get_logger().info('Starting Curio base failsafe')
 
     # Start the control loop
-    control_frequency = 20.0
-    if base_failsafe.has_parameter('failsafe_control_frequency'):
-        control_frequency = base_failsafe.get_parameter('failsafe_control_frequency')
+    base_failsafe.start_loop()
 
-    node.get_logger().info('Starting control loop at {} Hz'.format(control_frequency))
-    control_timer = base_failsafe.create_timer(1.0 / control_frequency,  base_failsafe.update)
 
     # Wait for shutdown
-    rclpy.spin()
+    rclpy.spin(base_failsafe)
 
 
 if __name__ == '__main__':

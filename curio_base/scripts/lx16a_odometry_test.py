@@ -37,70 +37,78 @@
 
 ''' Lewansoul LX-16A odometry test.
 '''
-
 import csv
+import serial
+
+import rclpy
+from rclpy.node import Node
+from rclpy.duration import Duration
+from geometry_msgs.msg import Twist
+from std_msgs.msg import Int64
+
 from curio_base.lx16a_driver import LX16ADriver
 from curio_base.lx16a_encoder_filter import LX16AEncoderFilter
-import rclpy
-import serial
-from std_msgs.msg import Int64
-from geometry_msgs.msg import Twist
 
-SERVO_SERIAL_PORT   = '/dev/cu.wchusbserialfd5110'
+# Constants .......................................
+CONTROL_FREQUENCY   = 50      # Control loop frequency [Hz]
+SERVO_SERIAL_PORT   = '/dev/ttyUSB0'
 SERVO_BAUDRATE      = 115200
 SERVO_TIMEOUT       = 1.0 # [s]
 SERVO_ID            = 11
-
-CONTROL_FREQUENCY   = 50  # [Hz]
-
-# Constants
 DATA_DIR  = './data/'
 WINDOW    = 10
-
 # Filename for persisted ML model
 MODEL_FILENAME = "{0}lx16a_tree_model_all.joblib".format(DATA_DIR)
 
-# Convert LX-16A position to angle in deg
-# def pos_to_deg(pos):
-#     return pos * 240.0 / 1000.0
+class LX16AOdometer(Node):
 
-class LX16AOdometer(object):
+    def __init__(self,name):
+        '''
+        Constructor
+        '''
+        super().__init__(name)
 
-    def __init__(self):
+        self.control_frequency = CONTROL_FREQUENCY
         # Publisher
         self._encoder_msg = Int64()
-        self._encoder_pub = rospy.Publisher('/encoder', Int64, queue_size=10)
+        self._encoder_pub = self.create_publisher(Int64, '/encoder', 10)
 
         # Subscriber
         self._cmd_vel_msg = Twist()
-        self._cmd_vel_sub = rospy.Subscriber('/cmd_vel', Twist, self.cmd_vel_callback)
+        self._cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel',  self.cmd_vel_callback, 10)
 
         # Initialise encoder filter
-        self._encoder_filter = LX16AEncoderFilter(MODEL_FILENAME, WINDOW)
+        self._encoder_filter = LX16AEncoderFilter(node = self, classifier_filename = MODEL_FILENAME, window = WINDOW)
 
         # Initialise servo driver
-        self._servo_driver = LX16ADriver()
+        self._servo_driver = LX16ADriver(self)
         self._servo_driver.set_port(SERVO_SERIAL_PORT)
         self._servo_driver.set_baudrate(SERVO_BAUDRATE)
         self._servo_driver.set_timeout(SERVO_TIMEOUT)
         self._servo_driver.open()
         
-        node.get_logger().info('Open connection to servo bus board')
-        node.get_logger().info('is_open: {}'.format(self._servo_driver.is_open()))
-        node.get_logger().info('port: {}'.format(self._servo_driver.get_port()))
-        node.get_logger().info('baudrate: {}'.format(self._servo_driver.get_baudrate()))
-        node.get_logger().info('timeout: {}'.format(self._servo_driver.get_timeout()))
+        self.get_logger().info('Open connection to servo bus board')
+        self.get_logger().info('is_open: {}'.format(self._servo_driver.is_open()))
+        self.get_logger().info('port: {}'.format(self._servo_driver.get_port()))
+        self.get_logger().info('baudrate: {}'.format(self._servo_driver.get_baudrate()))
+        self.get_logger().info('timeout: {}'.format(self._servo_driver.get_timeout()))
 
-    def shutdown(self):
+        # Register shutdown behaviour
+        rclpy.get_default_context().on_shutdown(self.shutdown_callback)
+
+
+    def shutdown_callback(self):
+        self.get_logger().info('Shutdown lx16a_odometry_test...')
         # Stop servo
-        node.get_logger().info('Stop servo')
         self._servo_driver.motor_mode_write(SERVO_ID, 0)
-
-    # def encoder_callback(self, msg):
-    #     self._encoder_msg = msg
+        self.get_logger().info('Servo stopped')
 
     def cmd_vel_callback(self, msg):
         self._cmd_vel_msg = msg
+
+    def start_loop(self):
+        self.get_logger().info('Starting control loop at {} Hz'.format(self.control_frequency))
+        self.control_timer = self.create_timer( 1.0 / self.control_frequency, self.update)
 
     def update(self, event):
         # To simplify things we map the linear velocity from [-1.0, 1.0] m/s
@@ -131,26 +139,19 @@ class LX16AOdometer(object):
 
         # node.get_logger().info("duty: {}, pos: {}, count: {}".format(duty, pos, count))
 
-if __name__ == '__main__':
-    rospy.init_node('lx16a_odometry_test')
-    node.get_logger().info('Starting Lewansoul LX-16A odometry test')
+def main(args=None):    
+    rclpy.init(args=args)   
+    
+    # Servo odometer Node
+    lx_odometry = LX16AOdometer('lx16a_odometry')
 
-    # Servo odometer
-    odometer = LX16AOdometer()
-
-    # Register shutdown behaviour
-    def shutdown_callback():
-        node.get_logger().info('Shutdown lx16a_odometry_test...')
-        odometer.shutdown()
-
-    rospy.on_shutdown(shutdown_callback)
+    lx_odometry.get_logger().info('Starting Lewansoul LX-16A odometry test')
 
     # Start the control loop
-    control_frequency = CONTROL_FREQUENCY
+    lx_odometry.start_loop()
 
-    node.get_logger().info('Starting control loop at {} Hz'.format(control_frequency))
-    control_timer = rospy.Timer(
-        Duration(1.0 / control_frequency),
-        odometer.update)
+    # And sleep ...
+    rclpy.spin(lx_odometry)
 
-    rospy.spin()
+if __name__ == '__main__':
+    main()

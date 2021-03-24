@@ -76,11 +76,13 @@ class LX16AEncoderFilter(object):
     regressor model. 
     '''
 
-    def __init__(self, base_controller): 
+    def __init__(self, node, classifier_filename, regressor_filename=None, window=10):
         '''Constructor        
 
-        Parameters (taken from the base controller that creates it)
+        Parameters
         ----------
+        node
+            An rclpy.node.Node, mostly to get times and log output
         classifier_filename : str
             The file name of the scikit-learn decision tree classifier
         regressor_filename : str
@@ -91,16 +93,16 @@ class LX16AEncoderFilter(object):
             has default 10)
         '''
 
-        self._base_controller = base_controller
+        self._node = node
         # Initialise ring buffers that store the encoder history.
-        self._window = self._base_controller._classifier_window
+        self._window = window
         self._index     = 0         # index for the ring buffers
-        self._ros_time  = [self._base_controller.get_clock().now().to_msg() for x in range(self._window)]
+        self._ros_time  = [self._node.get_clock().now().to_msg() for x in range(self._window)]
         self._duty      = [0.0 for x in range(self._window)]
         self._pos       = [0.0 for x in range(self._window)]
         self._X         = [0.0 for x in range(3 * self._window)]
-        self._classifier_filename = self._base_controller._classifier_filename
-        self._regressor_filename  = self._base_controller._regressor_filename
+        self._classifier_filename = classifier_filename
+        self._regressor_filename  = regressor_filename
         self._classifier     = None  # scikit-learn classifier
         self._regressor      = None  # scikit-learn regressor
         self._count_offset   = 0     # set to ensure count=0 when reset
@@ -139,7 +141,7 @@ class LX16AEncoderFilter(object):
 
         # Update the ring buffers
         self._index = (self._index + 1) % self._window
-        self._ros_time[self._index] = self._base_controller.get_clock().now().to_msg()
+        self._ros_time[self._index] = self._node.get_clock().now().to_msg()
         self._duty[self._index] = duty
         self._pos[self._index] = pos
                 
@@ -187,7 +189,7 @@ class LX16AEncoderFilter(object):
 
             # @DEBUG_INFO
             count_est = pos_est + ENCODER_MAX * self._revolutions 
-            self._base_controller.get_logger().debug("count_est: {}".format(count_est))
+            self._node.get_logger().debug("count_est: {}".format(count_est))
 
             # @TODO: the acceptance criteria may need further tuning.
             # The classifier will sometimes report false positives.
@@ -321,7 +323,7 @@ class LX16AEncoderFilter(object):
         '''
 
         # Back-populate the ring buffers with zero duty entries.
-        now = self._base_controller.get_clock().now().to_msg()
+        now = self._node.get_clock().now().to_msg()
         for i in range(self._window):
             t = now - Duration(seconds=(self._window - i)/50.0)
             self.update(t, 0, pos)  
@@ -350,7 +352,7 @@ class LX16AEncoderFilter(object):
         
         '''
         
-        self._base_controller.get_logger().info('Loading classifier from {}'.format(self._classifier_filename))
+        self._node.get_logger().info('Loading classifier from {}'.format(self._classifier_filename))
         self._classifier = joblib.load(self._classifier_filename)
 
     def _load_regressor(self):
@@ -360,5 +362,5 @@ class LX16AEncoderFilter(object):
         '''
         
         if self._regressor_filename is not None:
-            self._base_controller.get_logger().info('Loading regressor from {}'.format(self._regressor_filename))
+            self._node.get_logger().info('Loading regressor from {}'.format(self._regressor_filename))
             self._regressor = joblib.load(self._regressor_filename)

@@ -42,7 +42,6 @@ import joblib
 import math
 import numpy as np
 import pandas as pd
-import rclpy
 
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import cross_validate
@@ -52,24 +51,35 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 
-if __name__ == '__main__':
-    rospy.init_node('lx16a_train_classifier')
+import rclpy
+from rclpy.node import Node
+
+
+def get_param_or_die(node,param_name):
+    if not node.has_parameter(param_name):
+        node.get_logger().error('Missing parameter: ' + param_name + '. Exiting...')
+        rclpy.shutdown()
+    val = node.get_parameter(param_name)._value
+    return val
+
+def get_param_default(node,param_name,default):
+    if not node.has_parameter(param_name):
+        val = default
+    else:
+        val = node.get_parameter(param_name)._value
+    return val
+
+def main(args=None):    
+    rclpy.init(args=args) 
+    node = Node('lx16a_train_classifier')
     node.get_logger().info('Starting LX-16A classifier training')
 
     # Load parameters
-    check_accuracy_score = rospy.get_param('~check_accuracy_score', False)
-    check_cross_validation_score = rospy.get_param('~check_cross_validation_score', False)
-
-    if not rospy.has_param('~dataset_filename'):
-        rclpy.logerr('Missing parameter: dataset_filename. Exiting...')
-        exit()
-    dataset_filename = rospy.get_param('~dataset_filename')
-
-    if not rospy.has_param('~classifier_filename'):
-        rclpy.logerr('Missing parameter: classifier_filename. Exiting...')
-        exit()
-    classifier_filename = rospy.get_param('~classifier_filename')
-
+    check_accuracy_score = get_param_default(node,'check_accuracy_score', False)
+    check_cross_validation_score = get_param_default(node,'check_cross_validation_score', False)
+    dataset_filename = get_param_or_die(node,'dataset_filename')
+    classifier_filename = get_param_or_die(node,'classifier_filename')
+    
     # Load data from CSV 
     node.get_logger().info('Loading dataset: {}'.format(dataset_filename))
     df_data = pd.read_csv(dataset_filename, index_col=0, compression='zip')
@@ -117,3 +127,5 @@ if __name__ == '__main__':
     node.get_logger().info('Writing classifier: {}'.format(classifier_filename))
     joblib.dump(clf_pipe, classifier_filename, protocol=2)
 
+if __name__ == '__main__':
+    main()

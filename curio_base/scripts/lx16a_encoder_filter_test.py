@@ -73,11 +73,10 @@ def main(args=None):
     node.get_logger().info('Lewansoul LX-16A encoder filter (test)')
 
     # Publisher
-    encoder_msg = Int64()
     encoder_pub = node.create_publisher(Int64, '/encoder', 10) 
 
     # Encoder filter
-    filter = LX16AEncoderFilter(
+    filter = LX16AEncoderFilter(node=node,
         classifier_filename=CLASSIFIER_FILENAME,
         regressor_filename=REGRESSOR_FILENAME,
         window=WINDOW)

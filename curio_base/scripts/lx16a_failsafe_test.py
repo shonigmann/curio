@@ -42,64 +42,73 @@ and attempts to stop all servos in the WHEEL_SERVO_IDS list at the
 rate given by CONTROL_FREQUENCY.
 
 See curio_base/base_failsafe.py for motivation and more detail.
-
-Here is a guide to Arduino bootloaders:
-https://www.instructables.com/id/Overview-the-Arduino-sketch-uploading-process-and-/
 '''
 
-import curio_base.lx16a_driver
-import rclpy
-from rclpy.duration import Duration
 import serial
 
-SERVO_SERIAL_PORT   = '/dev/cu.wchusbserialfd5110'
+import rclpy
+from rclpy.node import Node
+from rclpy.duration import Duration
+
+from curio_base.lx16a_driver import LX16ADriver
+from curio_base.lx16a_encoder_filter import LX16AEncoderFilter
+
+# Constants .......................................
+CONTROL_FREQUENCY   = 20  # [Hz]
+SERVO_SERIAL_PORT   = '/dev/ttyUSB0'
 SERVO_BAUDRATE      = 115200
 SERVO_TIMEOUT       = 1.0 # [s]
 NUM_WHEELS          = 6
 WHEEL_SERVO_IDS     = [11, 12, 13, 21, 22, 23]
-CONTROL_FREQUENCY   = 20  # [Hz]
 
-class LX16AFailsafe(object):
+class LX16AFailsafe(Node):
 
-    def __init__(self):
+    def __init__(self,name):
+        '''
+        Constructor
+        '''        
+        super().__init__(name)
+
+        self.control_frequency = CONTROL_FREQUENCY
+        
         # Initialise servo driver
-        self._servo_driver = curio_base.lx16a_driver.LX16ADriver()
+        self._servo_driver = LX16ADriver(self)
         self._servo_driver.set_port(SERVO_SERIAL_PORT)
         self._servo_driver.set_baudrate(SERVO_BAUDRATE)
         self._servo_driver.set_timeout(SERVO_TIMEOUT)
         self._servo_driver.open()
         
-        node.get_logger().info('Open connection to servo bus board')
-        node.get_logger().info('is_open: {}'.format(self._servo_driver.is_open()))
-        node.get_logger().info('port: {}'.format(self._servo_driver.get_port()))
-        node.get_logger().info('baudrate: {}'.format(self._servo_driver.get_baudrate()))
-        node.get_logger().info('timeout: {}'.format(self._servo_driver.get_timeout()))
+        self.get_logger().info('Open connection to servo bus board')
+        self.get_logger().info('is_open: {}'.format(self._servo_driver.is_open()))
+        self.get_logger().info('port: {}'.format(self._servo_driver.get_port()))
+        self.get_logger().info('baudrate: {}'.format(self._servo_driver.get_baudrate()))
+        self.get_logger().info('timeout: {}'.format(self._servo_driver.get_timeout()))
 
-    def update(self, event):
-        ''' Update will stop all wheel servos.
+    def start_loop(self):
+        self.get_logger().info('Starting control loop at {} Hz'.format(self.control_frequency))
+        self.control_timer = self.create_timer( 1.0 / self.control_frequency, self.update)
 
-        Parameters
-        ----------
-        event : rospy.Timer
-            A rospy.Timer event.
+    def update(self):
+        ''' 
+        Update will stop all wheel servos.
         '''
         for i in range(NUM_WHEELS):
             servo_id = WHEEL_SERVO_IDS[i]
             self._servo_driver.motor_mode_write(servo_id, 0)
 
-if __name__ == '__main__':
-    rospy.init_node('lx16a_failsafe')
-    node.get_logger().info('Starting Lewansoul LX-16A failsafe')
+def main(args=None):    
+    rclpy.init(args=args)  
 
-    # Servo failsafe
-    lx16a_failsafe = LX16AFailsafe()
+    # Servo failsafe Node
+    lx_failsafe = LX16AFailsafe('lx16a_failsafe')
+    
+    lx_failsafe.get_logger().info('Starting Lewansoul LX-16A failsafe')
 
     # Start the control loop
-    control_frequency = CONTROL_FREQUENCY
+    lx_failsafe.start_loop()
 
-    node.get_logger().info('Starting control loop at {} Hz'.format(control_frequency))
-    control_timer = rospy.Timer(
-        Duration(1.0 / control_frequency),
-        lx16a_failsafe.update)
+    # And sleep ...
+    rclpy.spin(lx_failsafe)
 
-    rospy.spin()
+if __name__ == '__main__':
+    main()

@@ -43,7 +43,6 @@ from rclpy.node import Node
 from rclpy.duration import Duration
 from geometry_msgs.msg import Twist
 
-
 CONTROL_FREQUENCY = 50      # Control loop frequency [Hz]
 MU = 0.0                    # Random walk mean
 SIGMA = 0.8                 # Random walk stddev
@@ -99,7 +98,6 @@ def main(args=None):
     rclpy.spin(lx_base)
 
     lx_base.get_logger().info('Shutting down LX-16A CMD BASE')
-
 
 if __name__ == '__main__':
     main()

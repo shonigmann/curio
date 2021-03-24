@@ -38,10 +38,9 @@
 ''' Generate /cmd_vel samples using a random walk constrained to [-1, 1]
 '''
 
+import rclpy
 import math
 import random
-
-import rclpy
 
 from lx16a_cmd_base import LX16A_CMD_BASE
 from lx16a_cmd_base import STARTUP_CMD_VEL, SAMPLE_DURATION, STARTUP_DURATION

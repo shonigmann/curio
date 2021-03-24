@@ -77,13 +77,13 @@ def quaternion_from_euler(roll, pitch, yaw):
     cr = math.cos(roll * 0.5)
     sr = math.sin(roll * 0.5)
 
-    q = [0] * 4
-    q[0] = cy * cp * cr + sy * sp * sr
-    q[1] = cy * cp * sr - sy * sp * cr
-    q[2] = sy * cp * sr + cy * sp * cr
-    q[3] = sy * cp * cr - cy * sp * sr
+    q = Quaternion()
+    q.x = cy * cp * cr + sy * sp * sr
+    q.y = cy * cp * sr - sy * sp * cr
+    q.z = sy * cp * sr + cy * sp * cr
+    q.w = sy * cp * cr - cy * sp * sr
 
-    return Quaternion(q[0], q[1], q[2], q[3])
+    return q
 
 def degree(rad):
     ''' Convert an angle in degrees to radians
@@ -940,8 +940,8 @@ class BaseController(Node):
             self. _states_msg.header.frame_id = 'base_link'
 
             # LX16A state
-            self._states_msg.wheel_servo_states = self._wheel_states
-            self._states_msg.steer_servo_states = self._steer_states
+            self._states_msg.wheel_states = self._wheel_states
+            self._states_msg.steer_states = self._steer_states
 
             # Publish rover state
             self._states_pub.publish(self._states_msg)
@@ -1183,7 +1183,10 @@ class BaseController(Node):
 
         self._wheel_servo_duty = [0 for i in range(BaseController.NUM_WHEELS)]
         self._encoder_filters = [
-            LX16AEncoderFilter(self)
+            LX16AEncoderFilter(node=self,
+                classifier_filename = self._classifier_filename,
+                regressor_filename = self._regressor_filename,
+                window=self._classifier_window)
             for i in range(BaseController.NUM_WHEELS)
         ]
 
@@ -1202,6 +1205,19 @@ class BaseController(Node):
 
         # Transform
         self._odom_broadcaster = TransformBroadcaster(self)
+
+        # set up control loop
+        self.control_frequency = 10.0
+        if self.has_parameter('control_frequency'):
+            self.control_frequency = self.get_parameter('control_frequency')._value
+
+        # Register shutdown behaviour
+        rclpy.get_default_context().on_shutdown(self.shutdown)
+
+    def start_loop(self):
+        self.get_logger().info('Starting control loop at {} Hz'.format(self.control_frequency))
+        self.control_timer = self.create_timer( 1.0 / self.control_frequency, self.update)
+
 
     def move(self, lin_vel, ang_vel):
         ''' Move the robot given linear and angular velocities
@@ -1420,7 +1436,7 @@ class BaseController(Node):
     def shutdown(self):
         ''' Called by the node shutdown hook on exit.
         '''
-
+        self.get_logger().info('Shutdown Curio base controller...')
         # Stop all servos - @TODO add e-stop with latch.
         self.stop()
 
