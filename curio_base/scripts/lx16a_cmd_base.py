@@ -67,8 +67,8 @@ class LX16A_CMD_BASE(Node):
         self.mu = MU
         self.sigma = SIGMA
         self.control_frequency = CONTROL_FREQUENCY
-        self.sample_dur = Duration(seconds=_sample_dur)
-        self.start_dur = Duration(seconds=_start_dur)
+        self.sample_dur = _sample_dur # Duration(seconds=_sample_dur)
+        self.start_dur =  _start_dur # Duration(seconds=_start_dur)
 
         self.init_t = 0.0
         self.prev_t = 0.0
@@ -79,6 +79,8 @@ class LX16A_CMD_BASE(Node):
     def start_loop(self):
         self.get_logger().info('Starting control loop at {} Hz'.format(self.control_frequency))
         self.control_timer = self.create_timer( 1.0 / self.control_frequency, self.update)
+
+
 
     def update(self):
         pass

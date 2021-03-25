@@ -46,6 +46,7 @@ import rclpy
 from rclpy.duration import Duration
 
 from lx16a_cmd_base import LX16A_CMD_BASE, STARTUP_DURATION, SAMPLE_DURATION, STARTUP_CMD_VEL
+from curio_base.utils import get_time_secs
 
 STARTUP_DURATION  = 2.0     # startup duration [s]
 
@@ -62,13 +63,14 @@ class LX16A_CMD_VEL_STEP(LX16A_CMD_BASE):
         self.level = np.concatenate((np.linspace(-1, -0.15, 18), np.linspace(0.15, 1.0, 18)))
         self.level_idx = 0
         self.level_idx_inc = 1
-        self.init_t = self.get_clock().now().to_msg()
-        self.prev_t = self.get_clock().now().to_msg()
+        self.init_t = get_time_secs(self)
+        self.prev_t = get_time_secs(self)
+
 
     def update(self):
 
         # Startup
-        self.curr_t = self.get_clock().now().to_msg()
+        self.curr_t = get_time_secs(self)
         if self.curr_t - self.init_t < self.start_dur:
             self.cmd_vel_msg.linear.x = STARTUP_CMD_VEL
             self.cmd_vel_pub.publish(self.cmd_vel_msg)

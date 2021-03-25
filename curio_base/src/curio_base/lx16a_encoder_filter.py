@@ -41,12 +41,14 @@
 import joblib
 import math
 
-import rclpy
-from rclpy.duration import Duration
-
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+
+import rclpy
+from rclpy.duration import Duration
+
+from curio_base.utils import get_time_secs
 
 ENCODER_MIN    = 0      # minimum servo position reading
 ENCODER_MAX    = 1500   # maximum servo position reading
@@ -97,7 +99,7 @@ class LX16AEncoderFilter(object):
         # Initialise ring buffers that store the encoder history.
         self._window = window
         self._index     = 0         # index for the ring buffers
-        self._ros_time  = [self._node.get_clock().now().to_msg() for x in range(self._window)]
+        self._ros_time  = [get_time_secs(self) for x in range(self._window)]
         self._duty      = [0.0 for x in range(self._window)]
         self._pos       = [0.0 for x in range(self._window)]
         self._X         = [0.0 for x in range(3 * self._window)]
@@ -131,7 +133,7 @@ class LX16AEncoderFilter(object):
         
         Parameters
         ----------
-        ros_time: Node.get_clock().now().to_msg()
+        ros_time: float
             Current time
         duty : int
             The servo duty
@@ -141,14 +143,14 @@ class LX16AEncoderFilter(object):
 
         # Update the ring buffers
         self._index = (self._index + 1) % self._window
-        self._ros_time[self._index] = self._node.get_clock().now().to_msg()
+        self._ros_time[self._index] = ros_time
         self._duty[self._index] = duty
         self._pos[self._index] = pos
                 
         # times
         for i in range(self._window):
             idx = (self._index - i) % self._window
-            dt = (self._ros_time[idx] - self._ros_time[self._index]).to_sec()
+            dt = (self._ros_time[idx] - self._ros_time[self._index])
             self._X[i] = dt
         
         # duty 
@@ -323,9 +325,9 @@ class LX16AEncoderFilter(object):
         '''
 
         # Back-populate the ring buffers with zero duty entries.
-        now = self._node.get_clock().now().to_msg()
+        now = get_time_secs(self)
         for i in range(self._window):
-            t = now - Duration(seconds=(self._window - i)/50.0)
+            t = now - ((self._window - i)/50.0)
             self.update(t, 0, pos)  
 
         # Calculate the offset to zero the counter

@@ -49,6 +49,7 @@ from rclpy.duration import Duration
 from std_msgs.msg import Int64
 
 from curio_base.lx16a_encoder_filter import LX16AEncoderFilter
+from curio_base.utils import get_time_secs
 
 # Constants
 WINDOW = 10
@@ -86,7 +87,7 @@ def main(args=None):
     node.get_logger().info('num. samples = {}'.format(len(df)))
     node.get_logger().info('shape = {}'.format(df.shape))
 
-    start_time = node.get_clock().now().to_msg()
+    start_time = get_time_secs(node)
 
     for i in range(0, len(df)):
     # for i in range(0, 1000):
@@ -94,8 +95,8 @@ def main(args=None):
         row = df.loc[i]
 
         # Time since start [s]
-        now_time = node.get_clock().now().to_msg()
-        dt = (now_time - start_time).to_sec()
+        now_time = get_time_secs(node)
+        dt = now_time - start_time
 
         # Update the filter
         filter.update(now_time, row['duty'], row['pos'])

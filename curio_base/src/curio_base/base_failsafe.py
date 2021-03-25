@@ -39,8 +39,10 @@
 '''
 
 from curio_base.lx16a_driver import LX16ADriver
+
 import rclpy
 from rclpy.node import Node
+
 import serial
 
 class BaseFailsafe(Node):
@@ -127,7 +129,7 @@ class BaseFailsafe(Node):
         # Utility for validating servo parameters
         def validate_servo_param(param, name, expected_length):
             if len(param) != expected_length:
-                self.get_logger().err("Parameter '{}' must be an array length {}, got: {}"
+                self.get_logger().error("Parameter '{}' must be an array length {}, got: {}"
                     .format(name, expected_length, len(param)))
                 rclpy.shutdown()
 

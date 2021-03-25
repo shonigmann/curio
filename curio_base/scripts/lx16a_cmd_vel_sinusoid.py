@@ -46,6 +46,7 @@ import rclpy
 from rclpy.duration import Duration
 
 from lx16a_cmd_base import LX16A_CMD_BASE, STARTUP_CMD_VEL, SAMPLE_DURATION, STARTUP_DURATION
+from curio_base.utils import get_time_secs
 
 class LX16A_CMD_VEL_SIN(LX16A_CMD_BASE):
 
@@ -69,7 +70,7 @@ class LX16A_CMD_VEL_SIN(LX16A_CMD_BASE):
     def update(self):
 
         # Startup
-        self.curr_t = self.get_clock().now().to_msg()
+        self.curr_t = get_time_secs(self)
         if self.curr_t - self.init_t < self.start_dur:
             self.prev_t = self.curr_t
             self.cmd_vel_msg.linear.x = STARTUP_CMD_VEL
@@ -93,7 +94,7 @@ class LX16A_CMD_VEL_SIN(LX16A_CMD_BASE):
                 .format(self.amp_idx, self.curr_amp, self.period_idx, self.curr_period))
 
         # Update message and publish
-        t = (self.curr_t - self.init_t).to_sec()
+        t = (self.curr_t - self.init_t)
         omega = 2 * math.pi / self.curr_period
         self.vel = self.curr_amp * math.sin(omega * t)
 

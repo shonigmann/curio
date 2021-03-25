@@ -96,7 +96,6 @@ class LX16AOdometer(Node):
         # Register shutdown behaviour
         rclpy.get_default_context().on_shutdown(self.shutdown_callback)
 
-
     def shutdown_callback(self):
         self.get_logger().info('Shutdown lx16a_odometry_test...')
         # Stop servo
@@ -118,7 +117,7 @@ class LX16AOdometer(Node):
         duty = min(duty, +1000)
 
         # Read odometry
-        rostime = self.get_clock().now().to_msg()    
+        rostime = get_time_secs(self)    
 
         # @TODO: PROFILING
         pos = 0

@@ -42,6 +42,8 @@ import rclpy
 import math
 import random
 
+from curio_base.utils import get_time_secs
+
 from lx16a_cmd_base import LX16A_CMD_BASE
 from lx16a_cmd_base import STARTUP_CMD_VEL, SAMPLE_DURATION, STARTUP_DURATION
 
@@ -56,7 +58,7 @@ class LX16A_CMD_VEL_RANDOM(LX16A_CMD_BASE):
     def update(self):
 
         # Startup
-        self.curr_t = self.get_clock().now().to_msg()
+        self.curr_t = get_time_secs(self)
         if self.curr_t - self.init_t < self.start_dur:
             self.cmd_vel_msg.linear.x = STARTUP_CMD_VEL
             self.cmd_vel_pub.publish(self.cmd_vel_msg)

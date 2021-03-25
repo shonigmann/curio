@@ -92,6 +92,7 @@ from std_msgs.msg import Int64
 from geometry_msgs.msg import Twist
 
 import curio_base.lx16a_driver
+from curio_base.utils import get_time_secs
 
 SERVO_SERIAL_PORT   = '/dev/ttyUSB0'
 SERVO_BAUDRATE      = 115200
@@ -106,6 +107,8 @@ REFERENCE_ENCODER_CPR = 4096  # Counts per revolution for the reference logger (
 # Convert LX-16A position to angle in deg
 def pos_to_deg(pos):
     return pos * 240.0 / 1000.0
+
+
 
 class LX16AEncoderLogger(Node):
     DATA_BUFFER_SIZE = 100
@@ -169,7 +172,7 @@ class LX16AEncoderLogger(Node):
         self.get_logger().info("duty: {}, pos: {}, count: {}".format(duty, pos, count % REFERENCE_ENCODER_CPR))
 
         # Buffer data
-        self._data.append([self.get_clock().now().to_msg(), duty, pos, count])
+        self._data.append([get_time_secs(self), duty, pos, count])
         self._data_size = self._data_size + 1
         if (self._data_size == LX16AEncoderLogger.DATA_BUFFER_SIZE):
             self.write_data()

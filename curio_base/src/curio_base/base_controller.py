@@ -38,17 +38,13 @@
 # Arduino driver is not truly ported to ROS2 ...
 ENABLE_ARDUINO_LX16A_DRIVER = False
 
-if ENABLE_ARDUINO_LX16A_DRIVER:
-    # Load imports for the Arduino driver
-    from curio_msgs.msg import CurioServoCommands
-    from curio_msgs.msg import CurioServoPositions
-else:
-    # Load imports for the Python serial driver
-    from curio_base.lx16a_driver import LX16ADriver
-    from curio_msgs.msg import CurioServoStates
-    from curio_msgs.msg import LX16AState
 
+from curio_base.utils import get_time_secs, get_time_and_secs, turning_radius_and_rate, degree, quaternion_from_euler
 from curio_base.lx16a_encoder_filter import LX16AEncoderFilter
+from curio_base.servo import Servo
+from curio_base.python_servo_driver import PythonServoDriver
+from curio_base.arduino_servo_driver import ArduinoServoDriver
+from curio_base.ackermann_odometry import  AckermannOdometry
 from curio_msgs.msg import CurioServoEncoders
 from curio_msgs.msg import LX16AEncoder
 
@@ -62,614 +58,6 @@ from geometry_msgs.msg import Pose, PoseWithCovariance, Vector3, Twist, TwistWit
 from nav_msgs.msg import Odometry
 from tf2_ros.transform_broadcaster import TransformBroadcaster
 
-
-def quaternion_from_euler(roll, pitch, yaw):
-    """
-    From https://gist.github.com/salmagro/2e698ad4fbf9dae40244769c5ab74434
-    Converts euler roll, pitch, yaw to quaternion (w in last place)
-    quat = [x, y, z, w]
-    Bellow should be replaced when porting for ROS 2 Python tf_conversions is done.
-    """
-    cy = math.cos(yaw * 0.5)
-    sy = math.sin(yaw * 0.5)
-    cp = math.cos(pitch * 0.5)
-    sp = math.sin(pitch * 0.5)
-    cr = math.cos(roll * 0.5)
-    sr = math.sin(roll * 0.5)
-
-    q = Quaternion()
-    q.x = cy * cp * cr + sy * sp * sr
-    q.y = cy * cp * sr - sy * sp * cr
-    q.z = sy * cp * sr + cy * sp * cr
-    q.w = sy * cp * cr - cy * sp * sr
-
-    return q
-
-def degree(rad):
-    ''' Convert an angle in degrees to radians
-
-    Parameters
-    ----------
-    rad : float
-        An angle in radians
-
-    Returns
-    -------
-    float
-        The angle in degrees.
-    '''
-
-    return rad * 180.0 / math.pi
-
-def radian(deg):
-    ''' Convert an angle in radians to degrees
-
-    Parameters
-    ----------
-    deg : float
-        An angle in degrees
-
-    Returns
-    -------
-    float
-        The angle in radians.
-    '''
-
-    return deg * math.pi / 180.0
-
-def map(x, in_min, in_max, out_min, out_max):
-    ''' Map a value in one range to its equivalent in another.
-
-    Parameters
-    ----------
-    x : float
-        The value to be mapped
-    in_min : float
-        The minimum value the input variable can take. 
-    in_max : float
-        The maximum value the input variable can take. 
-    out_min : float
-        The minimum value the output variable can take. 
-    out_max : float
-        The maximum value the output variable can take. 
-
-    Returns
-    -------
-    float
-        The mapped value.
-    '''
-
-    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
-
-def clamp(x, lower, upper):
-    ''' Clamp a value between a lower and upper bound.
-
-    Parameters
-    ----------
-    x : float
-        The value to be clamped
-    in_min : float
-        The lower limit of the clamp. 
-    in_max : float
-        The upper limit of the clamp. 
-
-    Returns
-    -------
-    float
-        The clamped value.
-    '''
-
-    return min(max(x, lower), upper)
-
-def caseless_equal(left, right):
-    ''' A case insensitive comparison.
-
-    Parameters
-    ----------
-    left : str
-        A string to compare. 
-    right : str
-        A string to compare. 
-
-    Returns
-    -------
-    bool
-        Return True if the strings are equal ignoring case. 
-
-    '''
-    return left.upper() == right.upper()
-
-def turning_radius_and_rate(v_b, omega_b, d):
-    ''' Calculate the turning radius and rate of turn about
-    the instantaneous centre of curvature (ICC).
-
-    Conventions are specifiied according to ROS REP 103:
-    Standard Units of Measure and Coordinate Conventions
-    https://www.ros.org/reps/rep-0103.html.
-
-    x : forward
-    y : left
-    z : up
-
-    Example
-    -------
-    v_b >= 0, omega_b > 0 => r_p > 0    positive turn (anti-clockwise),
-    v_b >= 0, omega_b < 0 => r_p < 0    negative turn (clockwise),
-    v_b >= 0, omega_b = 0 => r_p = inf  no turn.
-
-    Parameters
-    ----------
-    v_b : float
-        The linear velocity of the base [m/s].
-    omega_b : float
-        The angular velocity of the base [rad/s].
-    d : float
-        distance between the fixed wheels [m].
-
-    Returns
-    -------
-    list
-        A two element list containing r_p the turning radius [m]
-        and and omega_p the rate of turn [rad/s]. If the motion
-        has no angular component then r_p is float('Inf') and
-        omega_p is zero.
-    '''
-
-    vl = v_b - d * omega_b / 2.0
-    vr = v_b + d * omega_b / 2.0
-    if vl == vr:
-        return float('Inf'), 0.0
-    else:
-        r_p = d * (vr + vl) / (vr - vl) / 2.0
-        omega_p = (vr - vl) / d
-        return r_p, omega_p
-
-class MeanWindowFilter(object):
-    ''' Simple rolling window filter.
-    '''
-
-    def __init__(self, window=5):
-        ''' Constructor
-
-        Parameters
-        ----------
-        window : int
-            The size of the rolling window, has (default 5)
-        '''
-
-        self._window = window
-        self._index  = 0
-        self._buffer = [0.0 for i in range(window)]        
-        self._sum    = 0.0 
-        self._mean   = 0.0
-
-    def update(self, value):
-        ''' Update the filter with the the next value.
-
-        Parameters
-        ----------
-        value : float
-            The next value to accumulate in the filter.
-        '''
-
-        # Update the ring buffer
-        self._index = (self._index + 1) % self._window
-        old_value = self._buffer[self._index] 
-        self._buffer[self._index] = value
-
-        # Update the stats
-        self._sum  = self._sum + value - old_value
-        self._mean = self._sum / self._window
-
-    def get_mean(self):
-        ''' Get the rolling mean
-
-        Returns
-        -------
-        float
-            The rolling mean
-        '''
-
-        return self._mean
-
-    def get_window(self):
-        ''' Get the size of the rolling window
-
-        Returns
-        -------
-        int
-            The size of the rolling window
-        '''
-        return self._window
-
-class Servo(object):
-    '''Servo properties.
-    
-    Store information about the servo.
-
-    Attributes
-    ----------
-    id : int
-        servo serial id: 0 - 253.
-    lon_label : int
-        Enumeration label for the longitudinal direction:
-        FRONT, MID, BACK.
-    lat_label : int
-        Enumeration label for the lateral direction: LEFT, RIGHT.
-    orientation : int
-        Flag to indicate whether the servo is installed for positive
-        or negtive rotation: 1, -1.
-    offset : int
-        The servo position offset (for servo rather than motor mode).
-        Use to centre servos.
-    position : list
-        List servo position in the robot base. Two dimensional
-        coordinate vector of floats.    
-    '''
-
-    # Lateral labels
-    LEFT  = 0
-    RIGHT = 1
-
-    # Longitudinal labels
-    FRONT = 2
-    MID   = 3
-    BACK  = 4
-
-    def __init__(self, id, lon_label, lat_label, orientation):
-        ''' Constructor
-        
-        Parameters
-        ----------
-        id : int
-            servo serial id: 0 - 253.
-        lon_label : str
-            Label for the longitudinal direction:
-            'front', 'mid', 'back'.
-        lat_label : str
-            Label for the lateral direction: 'left', 'right'.
-        orientation : int
-            Flag to indicate whether the servo is installed for positive
-            or negtive rotation: 1, -1.
-        '''
-
-        self.id = id
-        self.lon_label = lon_label
-        self.lat_label = lat_label
-        self.orientation = orientation
-        self.offset = 0.0
-        self.position = [0.0, 0.0]
-
-    @staticmethod
-    def to_lat_label(label_str):
-        ''' Convert a lateral label string to a enumerated value. 
-        
-        Parameters
-        ----------
-        label_str : str
-            Label for the lateral direction: 'left', 'right'.
-
-        Returns
-        -------
-        int
-            Enumeration label for the lateral direction:
-            LEFT, RIGHT.
-        '''
-
-        if caseless_equal(label_str, 'LEFT'):
-            return Servo.LEFT
-        if caseless_equal(label_str, 'RIGHT'):
-            return Servo.RIGHT
-        else:
-            return -1
- 
-    @staticmethod
-    def to_lon_label(label_str):
-        ''' Convert a longitudinal label string to a enumerated value. 
-        
-        Parameters
-        ----------
-        label_str : str
-            Label for the longitudinal direction:
-            'front', 'mid', 'back'.
-
-        Returns
-        -------
-        int :
-            Enumeration label for the longitudinal direction:
-            FRONT, MID, BACK.
-        '''
-
-        if caseless_equal(label_str, 'FRONT'):
-            return Servo.FRONT
-        if caseless_equal(label_str, 'MID'):
-            return Servo.MID
-        if caseless_equal(label_str, 'BACK'):
-            return Servo.BACK
-        else:
-            return -1
-
-class AckermannOdometry(Node):
-    ''' Odometry for the base controller (6 wheel Ackermann)
-    
-    This class based on its C++ equivalent in the
-    `ackermann_drive_controller` module which in turn was derived
-    from the `diff_drive_controller` in `ros_controllers`.
-
-    Original odometry code:
-    https://github.com/ros-controls/ros_controllers/diff_drive_controller
-
-    License: BSD-3-Clause
-
-    Copyright (c) 2013, PAL Robotics, S.L.
-    All rights reserved.
-
-    Authors
-        Luca Marchionni
-        Bence Magyar
-        Enrique Fernandez
-        Paul Mathieu
-    '''
-
-    def __init__(self):
-        '''
-        Constructor
-        '''
-        super().__init__('AckermannOdometry')
-        self._timestamp = self.get_clock().now().to_msg()
-        self._heading = 0.0     # [rad]
-        self._x       = 0.0     # [m]
-        self._y       = 0.0     # [m]
-        self._lin_vel_filter = MeanWindowFilter(window=5)   # [m/s]
-        self._ang_vel_filter = MeanWindowFilter(window=5)   # [rad/s]
-        self._wheel_radius = 0.06                           # [m]
-        self._mid_wheel_lat_separation = 0.52               # [m]
-        self._wheel_radius_multiplier = 1.0                 # [1]
-        self._mid_wheel_lat_separation_multiplier = 1.0     # [1]
-        self._num_wheels = 6
-        self._wheel_cur_pos = [0.0 for x in range(self._num_wheels)] # [m]
-        self._wheel_old_pos = [0.0 for x in range(self._num_wheels)] # [m]
-        self._wheel_est_vel = [0.0 for x in range(self._num_wheels)] # [m/s]
-
-    def reset(self, time):
-        ''' Reset the odometry
-
-        Parameters
-        ----------
-        time : Node.get_clock().now().to_msg()
-            The current time.
-        '''        
-
-        self._timestamp = time
-
-    def update_6(self, wheel_servo_pos, time):
-        ''' Update the odometry with the latest wheel servo positions.
-
-        Parameters
-        ----------
-        wheel_servo_pos : list
-            A list of 6 floats denoting the angular position of the
-            6 wheel servos [rad].
-        time : Node.get_clock().now().to_msg()
-            The current time.
-        '''
-
-        # Adjust the wheel radius and separation by the calibrated multipliers        
-        wheel_rad = self._wheel_radius * self._wheel_radius_multiplier
-        wheel_sep = self._mid_wheel_lat_separation * self._mid_wheel_lat_separation_multiplier
-
-        for i in range(self._num_wheels):
-            # Get the current wheel joint (linear) positions [m]
-            self._wheel_cur_pos[i] = wheel_servo_pos[i] * wheel_rad
-
-            # Estimate the velocity of the wheels using old and current positions
-            self._wheel_est_vel[i] = self._wheel_cur_pos[i] - self._wheel_old_pos[i]
-
-            # Update old position with current
-            self._wheel_old_pos[i] = self._wheel_cur_pos[i]
-
-        # @TODO - remove hardcoding and use a lookup instead
-        MID_RIGHT = 1
-        MID_LEFT  = 4
-
-        # Compute linear and angular velocities of the mobile base (base_link frame)
-        lin_vel = (self._wheel_est_vel[MID_RIGHT] + self._wheel_est_vel[MID_LEFT]) * 0.5
-        ang_vel = (self._wheel_est_vel[MID_RIGHT] - self._wheel_est_vel[MID_LEFT]) / wheel_sep
-
-        # Integrate the velocities to get the linear and angular positions
-        self._integrate_velocities(lin_vel, ang_vel)
-
-        # Cannot estimate the speed for small time intervals
-        dt = (time - self._timestamp).to_sec()
-        if dt < 0.0001:
-            return False
-
-        # Estimate speeds using a rolling mean / mode to filter them
-        self._timestamp = time
-
-        # Add to velocity filters
-        self._lin_vel_filter.update(lin_vel/dt)
-        self._ang_vel_filter.update(ang_vel/dt)
-
-        return True
-
-    def update_2(self, wheel_servo_pos, time):
-        ''' Update the odometry with the mid wheel servo positions.
-
-        Parameters
-        ----------
-        wheel_servo_pos : list
-            A list of 2 floats denoting the angular position of the
-            2 mid wheel servos [rad]
-        time : Node.get_clock().now().to_msg()
-            The current time.
-        '''
-
-        # Adjust the wheel radius and separation by the calibrated multipliers        
-        wheel_rad = self._wheel_radius * self._wheel_radius_multiplier
-        wheel_sep = self._mid_wheel_lat_separation * self._mid_wheel_lat_separation_multiplier
-
-        for i in range(2):
-            # Get the current wheel joint (linear) positions [m]
-            self._wheel_cur_pos[i] = wheel_servo_pos[i] * wheel_rad
-
-            # Estimate the velocity of the wheels using old and current positions
-            self._wheel_est_vel[i] = self._wheel_cur_pos[i] - self._wheel_old_pos[i]
-
-            # Update old position with current
-            self._wheel_old_pos[i] = self._wheel_cur_pos[i]
-
-        LEFT  = Servo.LEFT
-        RIGHT = Servo.RIGHT
-
-        # Compute linear and angular velocities of the mobile base (base_link frame)
-        lin_vel = (self._wheel_est_vel[RIGHT] + self._wheel_est_vel[LEFT]) * 0.5
-        ang_vel = (self._wheel_est_vel[RIGHT] - self._wheel_est_vel[LEFT]) / wheel_sep
-
-        # Integrate the velocities to get the linear and angular positions
-        self._integrate_velocities(lin_vel, ang_vel)
-
-        # Cannot estimate the speed for small time intervals
-        dt = (time - self._timestamp).to_sec()
-        if dt < 0.0001:
-            return False
-
-        # Estimate speeds using a rolling mean / mode to filter them
-        self._timestamp = time
-
-        # Add to velocity filters
-        self._lin_vel_filter.update(lin_vel/dt)
-        self._ang_vel_filter.update(ang_vel/dt)
-
-        return True
-
-    def get_heading(self):
-        ''' Get the heading [rad]
-
-        The heading in radians, with zero being along the longtidinal
-        axis (x), and positive rotation is towards the positive lateral
-        axis (y) to the left.
-
-        Returns
-        -------
-        float
-            The heading in radians.
-        '''
-
-        return self._heading
-
-    def get_x(self):
-        ''' Get the x position [m]
-        
-        Returns
-        -------
-        float
-            The x position [m].
-        '''
-
-        return self._x
-
-    def get_y(self):
-        ''' Get the y position [m]
-
-        Returns
-        -------
-        float
-            The y position [m].
-        '''
-
-        return self._y
-
-    def get_lin_vel(self):
-        ''' Get the linear velocity of the body [m/s]
-
-        Returns
-        -------
-        float
-            The linear velocity of the `base_link` [m/s].
-        '''
-
-        return self._lin_vel_filter.get_mean()
-
-    def get_ang_vel(self):
-        ''' Get the angular velocity of the body [rad/s]
-
-        Returns
-        -------
-        float
-            The angular velocity of the `base_link` [rad/s].
-        '''
-
-        return self._ang_vel_filter.get_mean()
-
-    def set_wheel_params(self,
-        wheel_radius,
-        mid_wheel_lat_separation,
-        wheel_radius_multiplier=1.0,
-        mid_wheel_lat_separation_multiplier=1.0):
-        ''' Set the wheel and steering geometry.
-
-        Note: all wheels are assumed to have the same radius, and the
-        mid wheels do not steer.
-
-        Parameters
-        ----------
-        wheel_radius : float
-            The radius of the wheels [m].
-        mid_wheel_lat_separation : float
-            The lateral separation [m] of the mid wheels.
-        wheel_radius_multiplier : float
-            Wheel radius calibration multiplier to tune odometry,
-            has (default = 1.0).
-        mid_wheel_lat_separation_multiplier : float
-            Wheel separation calibration multiplier to tune odometry,
-            has (default = 1.0).
-        '''
-
-        self._wheel_radius = wheel_radius
-        self._mid_wheel_lat_separation = mid_wheel_lat_separation
-        self._wheel_radius_multiplier = wheel_radius_multiplier
-        self._mid_wheel_lat_separation_multiplier = mid_wheel_lat_separation_multiplier
-
-    def _integrate_velocities(self, lin_vel, ang_vel):
-        ''' Integrate the current velocities to obtain the current
-        position and heading.
-
-        Parameters
-        ----------
-        lin_vel : float
-            The linear velocity of the `base_link`.
-        ang_vel : float
-            The angular velocity of the `base_link`.
-        '''
-
-        if math.fabs(ang_vel) < 1e-6:
-            self._integrate_runge_kutta2(lin_vel, ang_vel)
-        else:
-            #  Exact integration (should solve problems when angular is zero):
-            heading_old = self._heading
-            r = lin_vel/ang_vel
-            self._heading = self._heading + ang_vel
-            self._x = self._x + r * (math.sin(self._heading) - math.sin(heading_old))
-            self._y = self._y - r * (math.cos(self._heading) - math.cos(heading_old))
-
-    def _integrate_runge_kutta2(self, lin_vel, ang_vel):
-        ''' Integrate the current velocities to obtain the current
-        position and heading.
-
-        Parameters
-        ----------
-        lin_vel : float
-            The linear velocity of the `base_link`.
-        ang_vel : float
-            The angular velocity of the `base_link`.
-        '''
-        direction = self._heading + ang_vel * 0.5
-
-        # Runge-Kutta 2nd order integration:
-        self._x = self._x + lin_vel * math.cos(direction)
-        self._y = self._y + lin_vel * math.sin(direction)
-        self._heading = self._heading + ang_vel
 
 class BaseController(Node):
     ''' Mobile base controller for 6-wheel powered Ackerman steering.
@@ -815,204 +203,6 @@ class BaseController(Node):
     NUM_WHEELS = 6
     NUM_STEERS = 4
 
-    class PythonServoDriver(Node):
-        ''' Servo driver abstraction
-        '''
-        
-        def __init__(self):
-            ''' Constructor
-            '''
-
-            super().__init__('PythonServoDriver')
-
-            # LX-16A servo driver - all parameters are required
-            self.get_logger().info('Opening connection to servo bus board...')
-            port      = self.get_parameter('port')
-            baudrate  = self.get_parameter('baudrate')
-            timeout   = self.get_parameter('timeout')
-            self._servo_driver = LX16ADriver(self)
-            self._servo_driver.set_port(port)
-            self._servo_driver.set_baudrate(baudrate)
-            self._servo_driver.set_timeout(timeout)
-            self._servo_driver.open()        
-            self.get_logger().info('is_open: {}'.format(self._servo_driver.is_open()))
-            self.get_logger().info('port: {}'.format(self._servo_driver.get_port()))
-            self.get_logger().info('baudrate: {}'.format(self._servo_driver.get_baudrate()))
-            self.get_logger().info('timeout: {:.2f}'.format(self._servo_driver.get_timeout()))
-
-            # Publishers
-            self._states_msg = CurioServoStates()
-            self._states_pub = self.create_publisher(CurioServoStates, 'servo/states', 10)
-
-            self._servo_cmd_pub = self.create_publisher(CurioServoCommands, '/servo/commands', 10)
-            self._wheel_states = [LX16AState() for x in range(BaseController.NUM_WHEELS)]
-            self._steer_states = [LX16AState() for x in range(BaseController.NUM_STEERS)]
-
-        def set_servos(self, wheel_servos, steer_servos):
-            ''' 
-                Removed from constructor as we now extend a rclpy Node
-            '''
-            
-            self._wheel_servos = wheel_servos
-            self._steer_servos = steer_servos
-
-        def set_steer_command(self, i, position):
-            ''' Set the servo steering command
-            '''
-
-            servo = self._steer_servos[i]
-            self._servo_driver.servo_mode_write(servo.id)
-            self._servo_driver.move_time_write(servo.id, position, 50)
-
-        def set_wheel_command(self, i, duty):
-            ''' Set the servo wheel command
-            '''
-
-            servo = self._wheel_servos[i]
-            state = self._wheel_states[i]
-            state.command = duty
-            self._servo_driver.motor_mode_write(servo.id, duty)
-
-        def publish_commands(self):
-            ''' Publish the servo commands
-            '''
-
-            pass
-
-        def get_wheel_position(self, i):
-            ''' Get the servo position for the i-th wheel 
-            '''
-            
-            servo = self._wheel_servos[i]
-            state = self._wheel_states[i]
-            pos = self._servo_driver.pos_read(servo.id) 
-            state.position = pos
-            return pos
-
-        def set_angle_offset(self, i, deviation):
-            ''' Set the steering angle offset (trim)
-            '''
-
-            servo = self._steer_servos[i]
-            self._servo_driver.angle_offset_adjust(servo.id, servo.offset)
-            # self._servo_driver.angle_offset_write(servo.id)
-
-        # @TODO: check and test
-        def update_states(self, time):
-            ''' Update the servo states
-
-            Parameters
-            ----------
-            time : Node.get_clock().now().to_msg()
-                The current time.
-            '''
-
-            for i in range (BaseController.NUM_WHEELS):
-                servo = self._wheel_servos[i]
-                state = self._wheel_states[i]
-                state.id = servo.id
-                # state.temperature = self._servo_driver.temp_read(servo.id)
-                # state.voltage = self._servo_driver.vin_read(servo.id)
-                # state.angle_offset = self._servo_driver.angle_offset_read(servo.id)
-                state.mode = LX16AState.LX16A_MODE_MOTOR
-
-            for i in range (BaseController.NUM_STEERS):
-                servo = self._steer_servos[i]
-                state = self._steer_states[i]
-                state.id = servo.id
-                # state.temperature = self._servo_driver.temp_read(servo.id)
-                # state.voltage = self._servo_driver.vin_read(servo.id)
-                # state.angle_offset = self._servo_driver.angle_offset_read(servo.id)
-                state.mode = LX16AState.LX16A_MODE_SERVO
-
-        # @TODO: check and test
-        def publish_states(self, time):
-            ''' Publish the servo states
-
-            Parameters
-            ----------
-            time : Node.get_clock().now().to_msg()
-                The current time.
-            '''
-
-            # Header
-            self._states_msg.header.stamp = time
-            self. _states_msg.header.frame_id = 'base_link'
-
-            # LX16A state
-            self._states_msg.wheel_states = self._wheel_states
-            self._states_msg.steer_states = self._steer_states
-
-            # Publish rover state
-            self._states_pub.publish(self._states_msg)
-
-    class ArduinoServoDriver(Node):
-        ''' Servo driver abstraction
-        '''
-
-        def __init__(self):
-            ''' Constructor
-            '''
-
-            super().__init__('ArduinoServoDriver')
-
-            # Servo positions
-            self._servo_pos_msg = CurioServoPositions()
-            self._servo_pos_msg.wheel_positions = [0 for i in range(BaseController.NUM_WHEELS)]
-            self._servo_pos_msg.steer_positions = [0 for i in range(BaseController.NUM_STEERS)]
-            self._servo_pos_sub = self.create_subscription(CurioServoPositions, '/servo/positions', self._servo_pos_callback, 10)
-            
-            # Servo commands
-            self._servo_cmd_msg = CurioServoCommands()
-            self._servo_cmd_msg.wheel_commands = [0 for i in range(BaseController.NUM_WHEELS)]
-            self._servo_cmd_msg.steer_commands = [0 for i in range(BaseController.NUM_STEERS)]
-            self._servo_cmd_pub = self.create_publisher(CurioServoCommands, '/servo/commands', 10)
-
-        def set_servos(self, wheel_servos, steer_servos):
-            self._wheel_servos = wheel_servos
-            self._steer_servos = steer_servos
-
-        def set_steer_command(self, i, position):
-            ''' Set the servo steering command
-            '''
-
-            self._servo_cmd_msg.steer_commands[i] = position
-
-        def set_wheel_command(self, i, duty):
-            ''' Set the servo wheel command
-            '''
-
-            self._servo_cmd_msg.wheel_commands[i] = duty
-
-        def publish_commands(self):
-            ''' Publish the servo commands
-            '''
-
-            self._servo_cmd_pub.publish(self._servo_cmd_msg)
-
-        def get_wheel_position(self, i):
-            ''' Get the servo position for the i-th wheel 
-            '''
-
-            return self._servo_pos_msg.wheel_positions[i]            
-
-        def set_angle_offset(self, i, deviation):
-            ''' Set the steering angle offset (trim)
-            '''
-
-            pass
-
-        def _servo_pos_callback(self, msg):
-            ''' Callback for the subscription to `/servos/positions`.
-
-            Parameters
-            ----------
-            msg : curio_msgs.msg/CurioServoStates
-                The message for the servo positions.
-            '''
-
-            self._servo_pos_msg = msg
-
     def __init__(self):
         ''' Constructor
         '''
@@ -1087,7 +277,7 @@ class BaseController(Node):
         # Utility for validating servo parameters
         def validate_servo_param(param, name, expected_length):
             if len(param) != expected_length:
-                self.get_logger().err("Parameter '{}' must be an array length {}, got: {}"
+                self.get_logger().error("Parameter '{}' must be an array length {}, got: {}"
                     .format(name, expected_length, len(param)))
                 exit()
 
@@ -1139,15 +329,15 @@ class BaseController(Node):
         # Select whether to use the Python or Arduino servo driver
         if ENABLE_ARDUINO_LX16A_DRIVER:
 	    # @TODO: TEST THIS IN ROS2
-            self._servo_driver = BaseController.ArduinoServoDriver()                
+            self._servo_driver = ArduinoServoDriver()                
         else:
-            self._servo_driver = BaseController.PythonServoDriver()
+            self._servo_driver = PythonServoDriver()
 
         self._servo_driver.set_servos(self._wheel_servos, self._steer_servos)
 
         # Commanded velocity
-        self._cmd_vel_timeout = Duration(seconds=0.5)
-        self._cmd_vel_last_rec_time = self.get_clock().now().to_msg()
+        self._cmd_vel_timeout = 0.5 #Duration(seconds=0.5)
+        self._cmd_vel_last_rec_time = get_time_secs(self)
         self._cmd_vel_msg = Twist()
         self._cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel', self._cmd_vel_callback, 10)
 
@@ -1158,7 +348,7 @@ class BaseController(Node):
         # Odometry
         self.get_logger().info('Initialise odometry...')
         self._odometry = AckermannOdometry()
-        self._odometry.reset(self.get_clock().now().to_msg())
+        self._odometry.reset(get_time_secs(self))
         self._odometry.set_wheel_params(
             self._wheel_radius,
             self._mid_wheel_lat_separation,
@@ -1174,11 +364,11 @@ class BaseController(Node):
         self._classifier_window = self.get_parameter_or('classifier_window', 10)
 
         if not self.has_parameter('classifier_filename'):
-            self.get_logger().err('Missing parameter: classifier_filename. Exiting...')
+            self.get_logger().error('Missing parameter: classifier_filename. Exiting...')
         self._classifier_filename = self.get_parameter('classifier_filename')
 
         if not self.has_parameter('regressor_filename'):
-            self.get_logger().err('Missing parameter: regressor_filename. Exiting...')
+            self.get_logger().error('Missing parameter: regressor_filename. Exiting...')
         self._regressor_filename = self.get_parameter('regressor_filename')
 
         self._wheel_servo_duty = [0 for i in range(BaseController.NUM_WHEELS)]
@@ -1241,7 +431,7 @@ class BaseController(Node):
         '''
 
         # Check for timeout
-        has_timed_out = self.get_clock().now().to_msg() > self._cmd_vel_last_rec_time + self._cmd_vel_timeout
+        has_timed_out = get_time_secs(self) > self._cmd_vel_last_rec_time + self._cmd_vel_timeout
 
         # Calculate the turning radius and rate 
         r_p, omega_p = turning_radius_and_rate(lin_vel, ang_vel, self._mid_wheel_lat_separation)
@@ -1382,7 +572,7 @@ class BaseController(Node):
         '''
 
         self.get_logger().debug('cmd_vel: linear: {}, angular: {}'.format(msg.linear.x, msg.angular.z))
-        self._cmd_vel_last_rec_time = self.get_clock().now().to_msg()
+        self._cmd_vel_last_rec_time = get_time_secs(self)
         self._cmd_vel_msg = msg
 
     def _servo_pos_callback(self, msg):
@@ -1405,13 +595,14 @@ class BaseController(Node):
         '''
 
         # Get the current real time (just before this function was called)
-        time = self.get_clock().now().to_msg()
+        (time, time_stamp) = get_time_and_secs(self)
+        
 
         # Read and publish
         self._update_odometry(time)
-        self._publish_odometry(time)
-        self._publish_tf(time)
-        self._publish_encoders(time)
+        self._publish_odometry(time_stamp)
+        self._publish_tf(time_stamp)
+        self._publish_encoders(time_stamp)
 
         # PID control would go here...
 
@@ -1428,7 +619,7 @@ class BaseController(Node):
 
         # Get the current real time (just before this function
         # was called)
-        time = self.get_clock().now().to_msg()
+        time = get_time_secs(self)
 
         self._update_state(time)
         self._publish_states(time)
@@ -1469,7 +660,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : self.get_clock().now().to_msg()
+        time : The current time as float
             The current time.
 
         Returns
@@ -1505,8 +696,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : self.get_clock().now().to_msg()
-            The current time.
+        time : The current time as float
 
         Returns
         -------
@@ -1532,8 +722,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : self.get_clock().now().to_msg()
-            The current time.
+        time : The current time as float.
         i : int
             The index of the i-th wheel.
 
@@ -1592,13 +781,12 @@ class BaseController(Node):
             0., 0., 0., 0., 0., twist_cov_diag[5]
         ]
 
-    def _publish_odometry(self, time):
+    def _publish_odometry(self, _stamp):
         ''' Populate the nav_msgs.Odometry message and publish.
 
         Parameters
         ----------
-        time : self.get_clock().now().to_msg()
-            The current time.
+        _stamp : Current time as Node.get_clock().now().to_msg().
         '''
 
         # self.get_logger().info('x: {:.2f}, y: {:.2f}, heading: {:.2f}, lin_vel: {:.2f}, ang_vel: {:.2f}'
@@ -1611,7 +799,7 @@ class BaseController(Node):
 
         quat = quaternion_from_euler(0.0, 0.0, self._odometry.get_heading())
 
-        self._odom_msg.header.stamp = time
+        self._odom_msg.header.stamp = _stamp
         self._odom_msg.pose.pose.position.x   = self._odometry.get_x()
         self._odom_msg.pose.pose.position.y   = self._odometry.get_y()
         self._odom_msg.pose.pose.orientation.x = quat[0]
@@ -1631,8 +819,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : self.get_clock().now().to_msg()
-            The current time.
+        time : The current time as float.
         '''
 
         # Get the angular position of the all wheel servos [rad] and
@@ -1645,18 +832,17 @@ class BaseController(Node):
         wheel_servo_pos = self._update_mid_wheel_servo_positions(time)
         self._odometry.update_2(wheel_servo_pos, time)
 
-    def _publish_tf(self, time):
+    def _publish_tf(self, _stamp):
         ''' Publish the transform from 'odom' to 'base_link'
 
         Parameters
         ----------
-        time : self.get_clock().now().to_msg()
-            The current time.
+        _stamp : Current time as Node.get_clock().now().to_msg().
         '''
 
         # Broadcast the transform from 'odom' to 'base_link'
         newTF = TransformStamped()
-        newTF.header.stamp = time  # time
+        newTF.header.stamp = _stamp  # time_stamp
         newTF.header.frame_id = 'odom' #  parent  
         newTF.child_frame_id = 'base_link'  # child
         newTF.transform.translation.x = self._odometry.get_x()
@@ -1672,8 +858,7 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : Node.get_clock().now().to_msg()
-            The current time.
+        time : The current time as float
         '''
 
         pass
@@ -1684,19 +869,17 @@ class BaseController(Node):
 
         Parameters
         ----------
-        time : self.get_clock().now().to_msg()
-            The current time.
+        time : The current time as float.
         '''
 
         pass
 
-    def _publish_encoders(self, time):
+    def _publish_encoders(self, _stamp):
         ''' Publish the encoder state
 
         Parameters
         ----------
-        time : self.get_clock().now().to_msg()
-            The current time.
+        _stamp : Current time as Node.get_clock().now().to_msg().
         '''
         # Update the encoder messages
         for i in range(BaseController.NUM_WHEELS):
@@ -1712,7 +895,7 @@ class BaseController(Node):
             msg.revolutions = filter.get_revolutions()
 
         # Publish
-        self._encoders_msg.header.stamp = time
+        self._encoders_msg.header.stamp = _stamp
         self._encoders_msg.header.frame_id = 'base_link'
         self._encoders_msg.wheel_encoders = self._wheel_encoders
         self._encoders_pub.publish(self._encoders_msg)

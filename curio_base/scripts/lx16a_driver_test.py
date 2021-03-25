@@ -86,8 +86,9 @@ from geometry_msgs.msg import Twist
 
 
 import curio_base.lx16a_driver
+from curio_base.utils import get_time_secs
 
-SERVO_SERIAL_PORT   = '/dev/cu.wchusbserialfd5110'
+SERVO_SERIAL_PORT   = '/dev/ttyUSB0'
 SERVO_BAUDRATE      = 115200
 SERVO_TIMEOUT       = 1.0
 SERVO_ID            = 11
@@ -125,14 +126,14 @@ def test_servo_properties(servo_driver):
     # Run servo in motor (continuous) mode
     node.get_logger().info('Set motor speed')
     speed = 800
-    run_duration = Duration(seconds=2)
+    run_duration = 2 # Duration(seconds=2)
     pos = servo_driver.pos_read(SERVO_ID)
     angle = pos_to_deg(pos)
     node.get_logger().info("position: {}, angle: {}".format(pos, angle))
     servo_driver.motor_mode_write(SERVO_ID, speed)
 
-    start = node.get_clock().now().to_msg()
-    while node.get_clock().now().to_msg() < start + run_duration:
+    start = get_time_secs(node)
+    while get_time_secs(node) < start + run_duration:
         pos = servo_driver.pos_read(SERVO_ID)
         angle = pos_to_deg(pos)
         node.get_logger().info("position: {}, angle: {}".format(pos, angle))

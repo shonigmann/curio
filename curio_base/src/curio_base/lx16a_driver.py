@@ -541,7 +541,7 @@ class LX16ADriver(object):
     def read_byte(self):
         byte = self._serial.read()
         if len(byte) != 1:
-            self._node.get_logger().err('Serial read error, expecting 1 byte: got: {}'.format(byte))
+            self._node.get_logger().error('Serial read error, expecting 1 byte: got: {}'.format(byte))
         return ord(byte) if len(byte) == 1 else byte
 
     def read_bytearray(self, length):
