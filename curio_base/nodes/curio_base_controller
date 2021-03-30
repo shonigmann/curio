@@ -55,7 +55,6 @@ def main(args=None):
     # Start the control loop
     base_controller.start_loop()
 
-
     # Wait for shutdown
     rclpy.spin(base_controller)
 

@@ -53,21 +53,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 import rclpy
 from rclpy.node import Node
-
-
-def get_param_or_die(node,param_name):
-    if not node.has_parameter(param_name):
-        node.get_logger().error('Missing parameter: ' + param_name + '. Exiting...')
-        rclpy.shutdown()
-    val = node.get_parameter(param_name)._value
-    return val
-
-def get_param_default(node,param_name,default):
-    if not node.has_parameter(param_name):
-        val = default
-    else:
-        val = node.get_parameter(param_name)._value
-    return val
+from curio_base.utils import get_param_or_die, get_param_default
 
 def main(args=None):    
     rclpy.init(args=args) 

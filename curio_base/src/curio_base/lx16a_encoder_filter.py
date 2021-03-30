@@ -99,7 +99,7 @@ class LX16AEncoderFilter(object):
         # Initialise ring buffers that store the encoder history.
         self._window = window
         self._index     = 0         # index for the ring buffers
-        self._ros_time  = [get_time_secs(self) for x in range(self._window)]
+        self._ros_time  = [get_time_secs(self._node) for x in range(self._window)]
         self._duty      = [0.0 for x in range(self._window)]
         self._pos       = [0.0 for x in range(self._window)]
         self._X         = [0.0 for x in range(3 * self._window)]
@@ -325,7 +325,7 @@ class LX16AEncoderFilter(object):
         '''
 
         # Back-populate the ring buffers with zero duty entries.
-        now = get_time_secs(self)
+        now = get_time_secs(self._node)
         for i in range(self._window):
             t = now - ((self._window - i)/50.0)
             self.update(t, 0, pos)  

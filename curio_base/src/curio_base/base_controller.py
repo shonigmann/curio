@@ -35,20 +35,18 @@
 #   POSSIBILITY OF SUCH DAMAGE.
 # 
 
-# Arduino driver is not truly ported to ROS2 ...
-ENABLE_ARDUINO_LX16A_DRIVER = False
-
-
 from curio_base.utils import get_time_secs, get_time_and_secs, turning_radius_and_rate, degree, quaternion_from_euler
 from curio_base.lx16a_encoder_filter import LX16AEncoderFilter
 from curio_base.servo import Servo
 from curio_base.python_servo_driver import PythonServoDriver
-from curio_base.arduino_servo_driver import ArduinoServoDriver
 from curio_base.ackermann_odometry import  AckermannOdometry
-from curio_msgs.msg import CurioServoEncoders
-from curio_msgs.msg import LX16AEncoder
+
+from curio_base.utils import get_param_or_die, get_param_default
+
+from curio_msgs.msg import CurioServoEncoders, CurioServoStates,CurioServoPositions, CurioServoCommands, LX16AEncoder
 
 import math
+import threading
 
 import rclpy
 from rclpy.node import Node
@@ -170,19 +168,17 @@ class BaseController(Node):
         Publish servo encoder states
     servo/states : curio_msgs/CurioServoStates
         Publish the servo states
-        (Python serial only)
-    servo/commands : curio_msgs/CurioServoCommands
-        Publish servo commands to the servo controller     
+    servo/positions : curio_msgs/CurioServoPositions
+        Publish the servo positions from the servo controller     
         (Arduino serial only)
 
     Subscriptions
     -------------
     cmd_vel : geometry_msgs/Twist
-        Subscribe to `cmd_vel`.    
-    servo/positions : curio_msgs/CurioServoPositions
-        Subscribe to servo positions from the servo controller     
-        (Arduino serial only)
-
+        `cmd_vel` to move the robot 
+    servo/commands : curio_msgs/CurioServoCommands
+        Raw Servo commands            
+    
     '''
 
     # Velocity limits for the rover
@@ -210,136 +206,28 @@ class BaseController(Node):
         super().__init__('BaseController')
 
         self.get_logger().info('Initialising BaseController...')
+        self.load_ros_params()
 
-        # Wheel geometry on a flat surface - defaults
-        self._wheel_radius                = 0.060
-        self._mid_wheel_lat_separation    = 0.052
-        self._front_wheel_lat_separation  = 0.047
-        self._front_wheel_lon_separation  = 0.028
-        self._back_wheel_lat_separation   = 0.047
-        self._back_wheel_lon_separation   = 0.025
+        # Validate Wheel servo parameters
+        self.validate_servo_param(self.wheel_servo_ids, 'wheel_servo_ids', BaseController.NUM_WHEELS)
+        self.validate_servo_param(self.wheel_servo_lon_labels, 'wheel_servo_lon_labels', BaseController.NUM_WHEELS)
+        self.validate_servo_param(self.wheel_servo_lat_labels, 'wheel_servo_lat_labels', BaseController.NUM_WHEELS)
 
-        if self.has_parameter('wheel_radius'):
-            self._wheel_radius = self.get_parameter('wheel_radius')
-        if self.has_parameter('mid_wheel_lat_separation'):
-            self._mid_wheel_lat_separation = self.get_parameter('mid_wheel_lat_separation')
-        if self.has_parameter('front_wheel_lat_separation'):
-            self._front_wheel_lat_separation = self.get_parameter('front_wheel_lat_separation') 
-        if self.has_parameter('front_wheel_lon_separation'):
-            self._front_wheel_lon_separation = self.get_parameter('front_wheel_lon_separation')
-        if self.has_parameter('back_wheel_lat_separation'):
-            self._back_wheel_lat_separation = self.get_parameter('back_wheel_lat_separation')
-        if self.has_parameter('back_wheel_lon_separation'):
-            self._back_wheel_lon_separation = self.get_parameter('back_wheel_lon_separation')
-        
-        self.get_logger().info('wheel_radius: {:.2f}'.format(self._wheel_radius))
-        self.get_logger().info('mid_wheel_lat_separation: {:.2f}'.format(self._mid_wheel_lat_separation))
-        self.get_logger().info('front_wheel_lat_separation: {:.2f}'.format(self._front_wheel_lat_separation))
-        self.get_logger().info('front_wheel_lon_separation: {:.2f}'.format(self._front_wheel_lon_separation))
-        self.get_logger().info('back_wheel_lat_separation: {:.2f}'.format(self._back_wheel_lat_separation))
-        self.get_logger().info('back_wheel_lon_separation: {:.2f}'.format(self._back_wheel_lon_separation))
+        # Build Wheel Servo Handlers
+        self._wheel_servos = self.build_servos(BaseController.NUM_WHEELS,self.wheel_servo_ids, self.wheel_servo_lon_labels,self.wheel_servo_lat_labels)
+    
+        # Validate Steer servo parameters 
+        self.validate_servo_param(self.steer_servo_ids, 'steer_servo_ids', BaseController.NUM_STEERS)
+        self.validate_servo_param(self.steer_servo_lon_labels, 'steer_servo_lon_labels', BaseController.NUM_STEERS)
+        self.validate_servo_param(self.steer_servo_lat_labels, 'steer_servo_lat_labels', BaseController.NUM_STEERS)
+        self.validate_servo_param(self.steer_servo_angle_offsets, 'steer_servo_angle_offsets', BaseController.NUM_STEERS)
 
-        # Odometry calibration parameters
-        self._wheel_radius_multiplier               = 1.0
-        self._mid_wheel_lat_separation_multiplier   = 1.0
+        # Build Steer Servo Handlers
+        self._steer_servos = self.build_servos(BaseController.NUM_STEERS, self.steer_servo_ids, self.steer_servo_lon_labels, self.steer_servo_lat_labels, self.steer_servo_angle_offsets, True)    
 
-        if self.has_parameter('wheel_radius_multiplier'):
-            self._wheel_radius_multiplier = self.get_parameter('wheel_radius_multiplier')
-        if self.has_parameter('mid_wheel_lat_separation_multiplier'):
-            self._mid_wheel_lat_separation_multiplier = self.get_parameter('mid_wheel_lat_separation_multiplier')
-
-        self.get_logger().info('wheel_radius_multiplier: {:.2f}'
-            .format(self._wheel_radius_multiplier))
-        self.get_logger().info('mid_wheel_lat_separation_multiplier: {:.2f}'
-            .format(self._mid_wheel_lat_separation_multiplier))
-
-        def calc_position(lon_label, lat_label):
-            ''' Calculate servo positions using the wheel geometry parameters
-            '''
-            if lon_label == Servo.FRONT:
-                if lat_label == Servo.LEFT:
-                    return [self._front_wheel_lon_separation, self._front_wheel_lat_separation/2.0]
-                if lat_label == Servo.RIGHT:
-                    return [self._front_wheel_lon_separation, -self._front_wheel_lat_separation/2.0]
-            if lon_label == Servo.MID:
-                if lat_label == Servo.LEFT:
-                    return [0.0, self._mid_wheel_lat_separation/2.0]
-                if lat_label == Servo.RIGHT:
-                    return [0.0, -self._mid_wheel_lat_separation/2.0]
-            if lon_label == Servo.BACK:
-                if lat_label == Servo.LEFT:
-                    return [-self._back_wheel_lon_separation, self._back_wheel_lat_separation/2.0]
-                if lat_label == Servo.RIGHT:
-                    return [-self._back_wheel_lon_separation, -self._back_wheel_lat_separation/2.0]
-
-            return [0.0, 0.0]
-
-        # Utility for validating servo parameters
-        def validate_servo_param(param, name, expected_length):
-            if len(param) != expected_length:
-                self.get_logger().error("Parameter '{}' must be an array length {}, got: {}"
-                    .format(name, expected_length, len(param)))
-                exit()
-
-        # Wheel servo parameters - required
-        wheel_servo_ids           = self.get_parameter('wheel_servo_ids')
-        wheel_servo_lon_labels    = self.get_parameter('wheel_servo_lon_labels')
-        wheel_servo_lat_labels    = self.get_parameter('wheel_servo_lat_labels')
-
-        validate_servo_param(wheel_servo_ids, 'wheel_servo_ids', BaseController.NUM_WHEELS)
-        validate_servo_param(wheel_servo_lon_labels, 'wheel_servo_lon_labels', BaseController.NUM_WHEELS)
-        validate_servo_param(wheel_servo_lat_labels, 'wheel_servo_lat_labels', BaseController.NUM_WHEELS)
-
-        self._wheel_servos = []
-        for i in range(BaseController.NUM_WHEELS):
-            id = wheel_servo_ids[i]
-            lon_label = Servo.to_lon_label(wheel_servo_lon_labels[i])
-            lat_label = Servo.to_lat_label(wheel_servo_lat_labels[i])
-            orientation = 1 if lat_label == Servo.LEFT else -1
-            servo = Servo(id, lon_label, lat_label, orientation)
-            servo.position = calc_position(lon_label, lat_label)
-            self._wheel_servos.append(servo)
-            self.get_logger().info('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
-                .format(servo.id, servo.lon_label, servo.lat_label, servo.orientation, servo.offset, servo.position))
-
-        # Steer servo parameters - required
-        steer_servo_ids           = self.get_parameter('steer_servo_ids')
-        steer_servo_lon_labels    = self.get_parameter('steer_servo_lon_labels')
-        steer_servo_lat_labels    = self.get_parameter('steer_servo_lat_labels')
-        steer_servo_angle_offsets = self.get_parameter('steer_servo_angle_offsets')
-
-        validate_servo_param(steer_servo_ids, 'steer_servo_ids', BaseController.NUM_STEERS)
-        validate_servo_param(steer_servo_lon_labels, 'steer_servo_lon_labels', BaseController.NUM_STEERS)
-        validate_servo_param(steer_servo_lat_labels, 'steer_servo_lat_labels', BaseController.NUM_STEERS)
-        validate_servo_param(steer_servo_angle_offsets, 'steer_servo_angle_offsets', BaseController.NUM_STEERS)
-
-        self._steer_servos = []
-        for i in range(BaseController.NUM_STEERS):
-            id = steer_servo_ids[i]
-            lon_label = Servo.to_lon_label(steer_servo_lon_labels[i])
-            lat_label = Servo.to_lat_label(steer_servo_lat_labels[i])
-            orientation = -1
-            servo = Servo(id, lon_label, lat_label, orientation)            
-            servo.offset = steer_servo_angle_offsets[i]
-            servo.position = calc_position(lon_label, lat_label)
-            self._steer_servos.append(servo)
-            self.get_logger().info('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
-                .format(servo.id, servo.lon_label, servo.lat_label, servo.orientation, servo.offset, servo.position))
-
-        # Select whether to use the Python or Arduino servo driver
-        if ENABLE_ARDUINO_LX16A_DRIVER:
-	    # @TODO: TEST THIS IN ROS2
-            self._servo_driver = ArduinoServoDriver()                
-        else:
-            self._servo_driver = PythonServoDriver()
-
+        # TODO: removed support for arduino version ...
+        self._servo_driver = PythonServoDriver()
         self._servo_driver.set_servos(self._wheel_servos, self._steer_servos)
-
-        # Commanded velocity
-        self._cmd_vel_timeout = 0.5 #Duration(seconds=0.5)
-        self._cmd_vel_last_rec_time = get_time_secs(self)
-        self._cmd_vel_msg = Twist()
-        self._cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel', self._cmd_vel_callback, 10)
 
         # Tuning / calibration
         self.get_logger().info('Setting steer servo offsets...')
@@ -355,58 +243,170 @@ class BaseController(Node):
             self._wheel_radius_multiplier,
             self._mid_wheel_lat_separation_multiplier)
 
-        self._odom_msg = Odometry()
-        self._odom_pub = self.create_publisher(Odometry, '/odom', 10)
-
         self._init_odometry()
 
         # Encoder filters
-        self._classifier_window = self.get_parameter_or('classifier_window', 10)
-
-        if not self.has_parameter('classifier_filename'):
-            self.get_logger().error('Missing parameter: classifier_filename. Exiting...')
-        self._classifier_filename = self.get_parameter('classifier_filename')
-
-        if not self.has_parameter('regressor_filename'):
-            self.get_logger().error('Missing parameter: regressor_filename. Exiting...')
-        self._regressor_filename = self.get_parameter('regressor_filename')
-
-        self._wheel_servo_duty = [0 for i in range(BaseController.NUM_WHEELS)]
-        self._encoder_filters = [
-            LX16AEncoderFilter(node=self,
-                classifier_filename = self._classifier_filename,
-                regressor_filename = self._regressor_filename,
-                window=self._classifier_window)
-            for i in range(BaseController.NUM_WHEELS)
-        ]
+        self._wheel_servo_duty = []
+        self._encoder_filters = []
 
         for i in range(BaseController.NUM_WHEELS):
+            wheel_servo_duty = 0
+            encoder_filter = LX16AEncoderFilter(node=self, classifier_filename = self._classifier_filename, regressor_filename = self._regressor_filename, window=self._classifier_window)
+            
             # Invert the encoder filters on the right side
             servo = self._wheel_servos[i]
             if servo.lat_label == Servo.RIGHT:
-                self._encoder_filters[i].set_invert(True)
+                encoder_filter.set_invert(True)  
+            
+            # Reset encoder filters      
+            pos = self._servo_driver.get_wheel_position(i)    
+            encoder_filter.reset(pos)
 
-        self._reset_encoders()
-
+            self._wheel_servo_duty.append(wheel_servo_duty)
+            self._encoder_filters.append(encoder_filter)
+ 
         # Encoder messages (primarily for debugging)
-        self._encoders_msg = CurioServoEncoders()
-        self._encoders_pub = self.create_publisher(CurioServoEncoders, '/servo/encoders', 10)
         self._wheel_encoders = [LX16AEncoder() for i in range(BaseController.NUM_WHEELS)] 
-
-        # Transform
-        self._odom_broadcaster = TransformBroadcaster(self)
-
-        # set up control loop
-        self.control_frequency = 10.0
-        if self.has_parameter('control_frequency'):
-            self.control_frequency = self.get_parameter('control_frequency')._value
 
         # Register shutdown behaviour
         rclpy.get_default_context().on_shutdown(self.shutdown)
 
+        # Manages access to odometry data
+        self.odom_lock = threading.Lock()
+
+        # Create ROS communications
+        self.create_ros_comms()
+
+    def create_ros_comms(self):
+
+        ## PUBLISHERS, SRV. CLIENTS & BROADCASTERS ...............................................
+        # Odometry
+        self._odom_msg = Odometry()
+        self._odom_pub = self.create_publisher(Odometry, '/odom', 10)
+
+        # Encoder messages
+        self._encoders_msg = CurioServoEncoders()
+        self._encoders_pub = self.create_publisher(CurioServoEncoders, '/servo/encoders', 10)
+
+        # Transform broadcaster
+        self._odom_broadcaster = TransformBroadcaster(self)
+
+        # Servo positions
+        self._positions_msg = CurioServoPositions()
+        self._positions_msg.header.frame_id = 'base_link'
+        self._positions_pub = self.create_publisher(CurioServoPositions, '/servo/positions', 10)
+
+        # Servo states
+        self._states_msg = CurioServoStates()
+        self._states_pub = self.create_publisher(CurioServoStates, '/servo/states', 10)
+
+        ## SUBSCRIBERS, SERVERS & ACTION SERVERS ...............................................
+
+        # Commanded velocity
+        self._cmd_vel_timeout = 0.5 #Duration(seconds=0.5)
+        self._cmd_vel_last_rec_time = get_time_secs(self)
+        self._cmd_vel_msg = Twist()
+        self._cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel', self._cmd_vel_callback, 10)
+
+        # Servo commands
+        self._servo_cmd_msg = CurioServoCommands()
+        self._servo_cmd_sub = self.create_subscription(Twist, 'servo/commands', self._servo_cmd_callback, 10)
+
+    def load_ros_params(self):
+        ''' Load default parameters and configure them from the param server.
+        '''
+        
+        # Wheel geometry on a flat surface 
+        self._wheel_radius = get_param_default(self,'wheel_radius',0.060)
+        self._mid_wheel_lat_separation    = get_param_default(self,'mid_wheel_lat_separation', 0.052)
+        self._front_wheel_lat_separation  = get_param_default(self,'front_wheel_lat_separation', 0.047)
+        self._front_wheel_lon_separation  = get_param_default(self,'front_wheel_lon_separation', 0.028)
+        self._back_wheel_lat_separation   = get_param_default(self,'back_wheel_lat_separation', 0.047)
+        self._back_wheel_lon_separation   = get_param_default(self,'back_wheel_lon_separation', 0.025)
+    
+        self.get_logger().info('wheel_radius: {:.2f}'.format(self._wheel_radius))
+        self.get_logger().info('mid_wheel_lat_separation: {:.2f}'.format(self._mid_wheel_lat_separation))
+        self.get_logger().info('front_wheel_lat_separation: {:.2f}'.format(self._front_wheel_lat_separation))
+        self.get_logger().info('front_wheel_lon_separation: {:.2f}'.format(self._front_wheel_lon_separation))
+        self.get_logger().info('back_wheel_lat_separation: {:.2f}'.format(self._back_wheel_lat_separation))
+        self.get_logger().info('back_wheel_lon_separation: {:.2f}'.format(self._back_wheel_lon_separation))
+
+        # Odometry calibration parameters
+        self._wheel_radius_multiplier               = get_param_default(self,'wheel_radius_multiplier',1.0)
+        self._mid_wheel_lat_separation_multiplier   = get_param_default(self,'mid_wheel_lat_separation_multiplier',1.0)
+
+        self.get_logger().info('wheel_radius_multiplier: {:.2f}'.format(self._wheel_radius_multiplier))
+        self.get_logger().info('mid_wheel_lat_separation_multiplier: {:.2f}'.format(self._mid_wheel_lat_separation_multiplier))
+
+        # Wheel servo parameters - required
+        self.wheel_servo_ids           = get_param_or_die(self,'wheel_servo_ids')
+        self.wheel_servo_lon_labels    = get_param_or_die(self,'wheel_servo_lon_labels')
+        self.wheel_servo_lat_labels    = get_param_or_die(self,'wheel_servo_lat_labels')
+
+        # Steer servo parameters - required
+        self.steer_servo_ids           = get_param_or_die(self,'steer_servo_ids')
+        self.steer_servo_lon_labels    = get_param_or_die(self,'steer_servo_lon_labels')
+        self.steer_servo_lat_labels    = get_param_or_die(self,'steer_servo_lat_labels')
+        self.steer_servo_angle_offsets = get_param_or_die(self,'steer_servo_angle_offsets')
+
+        # Encoder filters
+        self._classifier_window        = get_param_default(self,'classifier_window', 10)
+        self._classifier_filename      = get_param_or_die(self,'classifier_filename')
+        self._regressor_filename       = get_param_or_die(self,'regressor_filename')
+
+        # Set up control loop rate
+        self.control_frequency         = get_param_default(self,'control_frequency',10.0)
+        self.odometry_frequency         = get_param_default(self,'odometry_frequency',20.0)
+
+    def calc_position(self,lon_label, lat_label):
+        ''' Calculate servo positions using the wheel geometry parameters
+        '''
+        if lon_label == Servo.FRONT:
+            if lat_label == Servo.LEFT:
+                return [self._front_wheel_lon_separation, self._front_wheel_lat_separation/2.0]
+            if lat_label == Servo.RIGHT:
+                return [self._front_wheel_lon_separation, -self._front_wheel_lat_separation/2.0]
+        if lon_label == Servo.MID:
+            if lat_label == Servo.LEFT:
+                return [0.0, self._mid_wheel_lat_separation/2.0]
+            if lat_label == Servo.RIGHT:
+                return [0.0, -self._mid_wheel_lat_separation/2.0]
+        if lon_label == Servo.BACK:
+            if lat_label == Servo.LEFT:
+                return [-self._back_wheel_lon_separation, self._back_wheel_lat_separation/2.0]
+            if lat_label == Servo.RIGHT:
+                return [-self._back_wheel_lon_separation, -self._back_wheel_lat_separation/2.0]
+
+        return [0.0, 0.0]
+
+    # Utility for validating servo parameters
+    def validate_servo_param(self,param, name, expected_length):
+        if len(param) != expected_length:
+            self.get_logger().fatal("Parameter '{}' must be an array length {}, got: {}".format(name, expected_length, len(param)))
+    
+    def build_servos(self,num_servos, id_list, lon_labels, lat_labels,angle_offsets=None, is_steer=False):
+        servos = []
+        for i in range(num_servos):
+            id = id_list[i]
+            lon_label = Servo.to_lon_label(lon_labels[i])
+            lat_label = Servo.to_lat_label(lat_labels[i])
+            orientation = 1 
+            if is_steer or lat_label != Servo.LEFT:
+                orientation = -1 
+            servo = Servo(id, lon_label, lat_label, orientation)
+            if is_steer:
+                servo.offset = angle_offsets[i] 
+            servo.position = self.calc_position(lon_label, lat_label)
+            servos.append(servo)
+            self.get_logger().info('servo: id: {}, lon_label: {}, lat_label: {}, orientation: {}, offset: {}, position: {}'
+                .format(servo.id, servo.lon_label, servo.lat_label, servo.orientation, servo.offset, servo.position))
+        return servos
+
+
     def start_loop(self):
-        self.get_logger().info('Starting control loop at {} Hz'.format(self.control_frequency))
-        self.control_timer = self.create_timer( 1.0 / self.control_frequency, self.update)
+        self.get_logger().info('Starting control loops at {} Hz'.format(self.control_frequency))
+        self.publisher_timer = self.create_timer( 1.0 / self.control_frequency, self.update)
+        self.odometry_timer = self.create_timer( 1.0 / self.odometry_frequency, self.update_odometry)
 
 
     def move(self, lin_vel, ang_vel):
@@ -532,8 +532,31 @@ class BaseController(Node):
             # Update duty array (needed for servo position classifier)
             self._wheel_servo_duty[i] = duty
 
-        # Publish the servo command
-        self._servo_driver.publish_commands()
+    def servo_move(self,wheel_commands, steer_commands):
+        ''' Move the robot given servo values.
+        '''
+
+        # Check for timeout
+        has_timed_out = get_time_secs(self) > self._servo_cmd_last_rec_time + self._cmd_vel_timeout
+
+        # Update steer servos
+        self.get_logger().debug('Updating steer servos')
+        for i in range(BaseController.NUM_STEERS):
+            servo = self._steer_servos[i]
+            servo_pos = 0 if has_timed_out else steer_commands[i]
+            self.get_logger().debug('\tid: {}, servo_pos: {}'.format(servo.id, servo_pos))
+            self._servo_driver.set_steer_command(i, servo_pos)
+
+        # Update wheel servos
+        self.get_logger().debug('Updating wheel servos')
+        for i in range(BaseController.NUM_WHEELS):
+            servo = self._wheel_servos[i]
+            duty =  0 if has_timed_out else wheel_commands[i]
+            self.get_logger().debug('\tid: {},  servo_vel: {}'.format(servo.id, duty))
+            self._servo_driver.set_wheel_command(i, duty)
+
+            # Update duty array (needed for servo position classifier)
+            self._wheel_servo_duty[i] = duty
 
     def set_steer_servo_offsets(self):
         ''' Set angle offsets for the steering servos.
@@ -575,22 +598,31 @@ class BaseController(Node):
         self._cmd_vel_last_rec_time = get_time_secs(self)
         self._cmd_vel_msg = msg
 
-    def _servo_pos_callback(self, msg):
-        ''' Callback for the subscription to `/servos/positions`.
+        # vel commands disable servo commands
+        self._servo_cmd_last_rec_time = 0
+        self._servo_cmd_msg = CurioServoCommands()
 
+    def _servo_cmd_callback(self, msg):
+        ''' Callback for the subscription to `servo/commands`.
         Parameters
         ----------
-        msg : curio_msgs.msg/CurioServoStates
-            The message for the servo positions.
+        msg : curio_msgs.msg/CurioServoCommands
+            The message for the servo commands.
         '''
+        # TODO!
+        self._servo_cmd_last_rec_time = get_time_secs(self)
+        self.get_logger().debug('CurioServoCommand received at: {}'.format(self._servo_cmd_last_rec_time))
+        self._servo_cmd_msg = msg
 
-        self._servo_pos_msg = msg
+        # servo commands disable vel commands
+        self._cmd_vel_last_rec_time = 0
+        self._cmd_vel_msg = Twist()
+
 
     def update(self):
-        ''' Callback for the control loop.
-        
-        This to be called at the control loop frequency by the node's
-        main function, usually managed by a rclpy.create_timer
+        ''' Callback for the control loop.        
+        This to be called at the control loop frequency by start_loop function, 
+        managed by a rclpy.create_timer
 
         '''
 
@@ -598,31 +630,52 @@ class BaseController(Node):
         (time, time_stamp) = get_time_and_secs(self)
         
 
-        # Read and publish
-        self._update_odometry(time)
-        self._publish_odometry(time_stamp)
+        # Publish
+        self._publish_odometry(time_stamp)        
         self._publish_tf(time_stamp)
         self._publish_encoders(time_stamp)
 
+        self._publish_positions(time)
+        self._publish_states(time_stamp)
+
         # PID control would go here...
 
-        # Write commands
-        self.move(self._cmd_vel_msg.linear.x, self._cmd_vel_msg.angular.z)
-
-    def update_state(self):
-        ''' Callback for the status update loop.
+        # Exec commands
+        if self._cmd_vel_last_rec_time>0:
+            self.move(self._cmd_vel_msg.linear.x, self._cmd_vel_msg.angular.z)
+        if self._servo_cmd_last_rec_time>0:
+            self.servo_move(self._servo_cmd_msg.wheel_commands, self._servo_cmd_msg.steer_commands)
         
-        This to be called at the status update frequency by the node's
-        main function, usually managed by a rclpy.create_timer.
 
-        '''
+    def _publish_positions(self, time):
+        # Servo positions
+        self._positions_msg.header.stamp = time
+        
+        self.odom_lock.acquire()
+        self._positions_msg.wheel_positions = self.wheel_servo_pos
+        self._positions_msg.steer_positions = self.steer_servo_pos
+        self.odom_lock.release()
 
-        # Get the current real time (just before this function
-        # was called)
-        time = get_time_secs(self)
+    
+        self._positions_pub.publish(self._positions_msg)
 
-        self._update_state(time)
-        self._publish_states(time)
+    def get_steer_positions(self):
+        steer_angles = []
+        for servo in self._steer_servos:
+            # Wheel position
+            x = servo.position[0]
+            y = servo.position[1]
+
+            # Wheel angle
+            angle = math.atan2(x, (r_p - y))
+            steer_angles.append(angle)
+
+
+    def _publish_states(self, time_stamp):
+        # Servo states
+        self._states_msg = CurioServoStates()
+        self._states_pub.publish(self._states_msg )
+
 
     def shutdown(self):
         ''' Called by the node shutdown hook on exit.
@@ -688,6 +741,33 @@ class BaseController(Node):
             msg = msg + "{}: {}, ".format(servo.id, count)
 
         self.get_logger().info(msg)
+        return servo_positions
+
+def _update_all_steer_servo_positions(self, time):
+        ''' Get the servo positions in radians for all steering servos.
+
+        Parameters
+        ----------
+        time : The current time as float
+            The current time.
+
+        Returns
+        -------
+        list
+            A list of 6 floats containing the angular position
+            of each of the steer servos [rad].
+        '''
+
+        servo_positions = [0 for i in range(BaseController.NUM_STEERS)]
+        msg = 'time: {}, '.format(time)
+        for i in range (BaseController.NUM_STEERS):
+            servo = self._steer_servos[i]
+
+            # Calculate the encoder count
+            duty = self._steer_servo_duty[i]
+
+            servo_positions[i] = theta
+
         return servo_positions
 
     def _update_mid_wheel_servo_positions(self, time):
@@ -797,21 +877,23 @@ class BaseController(Node):
         #         self._odometry.get_lin_vel(),
         #         self._odometry.get_ang_vel()))
 
+        self.odom_lock.acquire()
         quat = quaternion_from_euler(0.0, 0.0, self._odometry.get_heading())
-
-        self._odom_msg.header.stamp = _stamp
         self._odom_msg.pose.pose.position.x   = self._odometry.get_x()
         self._odom_msg.pose.pose.position.y   = self._odometry.get_y()
+        self._odom_msg.twist.twist.linear.x    = self._odometry.get_lin_vel()
+        self._odom_msg.twist.twist.angular.z   = self._odometry.get_ang_vel()
+        self.odom_lock.release()
+
+        self._odom_msg.header.stamp = _stamp
         self._odom_msg.pose.pose.orientation.x = quat[0]
         self._odom_msg.pose.pose.orientation.y = quat[1]
         self._odom_msg.pose.pose.orientation.z = quat[2]
         self._odom_msg.pose.pose.orientation.w = quat[3]
-        self._odom_msg.twist.twist.linear.x    = self._odometry.get_lin_vel()
-        self._odom_msg.twist.twist.angular.z   = self._odometry.get_ang_vel()
 
         self._odom_pub.publish(self._odom_msg)
 
-    def _update_odometry(self, time):
+    def update_odometry(self, time):
         ''' Update odometry
 
         This is the same calculation as used in the odometry
@@ -824,13 +906,19 @@ class BaseController(Node):
 
         # Get the angular position of the all wheel servos [rad] and
         # update odometry
-        # wheel_servo_pos = self._update_all_wheel_servo_positions(time)
-        # self._odometry.update_6(wheel_servo_pos, time)
+        wheel_servo_pos = self._update_all_wheel_servo_positions(time)
+        steer_servo_pos = self._update_all_steer_servo_positions(time)
+
+        self.odom_lock.acquire()
+        self.wheel_servo_pos = wheel_servo_pos
+        self.steer_servo_pos = steer_servo_pos
+        self._odometry.update_6(self.wheel_servo_pos, time)
+        self.odom_lock.release()
 
         # Get the angular position of the mid wheel servos [rad]
         # and update odometry
-        wheel_servo_pos = self._update_mid_wheel_servo_positions(time)
-        self._odometry.update_2(wheel_servo_pos, time)
+        # wheel_servo_pos = self._update_mid_wheel_servo_positions(time)
+        # self._odometry.update_2(wheel_servo_pos, time)
 
     def _publish_tf(self, _stamp):
         ''' Publish the transform from 'odom' to 'base_link'
@@ -845,15 +933,19 @@ class BaseController(Node):
         newTF.header.stamp = _stamp  # time_stamp
         newTF.header.frame_id = 'odom' #  parent  
         newTF.child_frame_id = 'base_link'  # child
+        newTF.transform.translation.z = 0.0  # translation
+        self.odom_lock.acquire()
         newTF.transform.translation.x = self._odometry.get_x()
         newTF.transform.translation.y = self._odometry.get_y()
-        newTF.transform.translation.z = 0.0  # translation 
         newTF.transform.rotation = quaternion_from_euler(0.0, 0.0, self._odometry.get_heading())  #  rotation
+        self.odom_lock.release()
             
         self._odom_broadcaster.sendTransform(newTF)
 
+
+
     # @IMPLEMENT
-    def _update_state(self, time):
+    def update_state(self, time):
         ''' Update the rover's status
 
         Parameters
@@ -864,7 +956,7 @@ class BaseController(Node):
         pass
 
     # @IMPLEMENT
-    def _publish_states(self, time):
+    def publish_states(self, time):
         ''' Publish the rover's status
 
         Parameters

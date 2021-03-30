@@ -82,7 +82,7 @@
 
 '''
 
-import csv
+import pandas as pd
 import serial
 
 import rclpy
@@ -97,10 +97,12 @@ from curio_base.utils import get_time_secs
 SERVO_SERIAL_PORT   = '/dev/ttyUSB0'
 SERVO_BAUDRATE      = 115200
 SERVO_TIMEOUT       = 1.0 # [s]
-SERVO_ID            = 111
+SERVO_ID            = 1
 
 CONTROL_FREQUENCY   = 50  # [Hz]
-OUT_DATA_FILENAME   = "./data/lx16a_raw_data_08.csv"
+# TODO: find a better way to do this ...
+ROOT_FOLDER = "/home/manuel/workspace/ros2_rov/src/curio/curio_base/"
+OUT_DATA_FILENAME   = ROOT_FOLDER + "data/lx16a_raw_data_08.csv"
 
 REFERENCE_ENCODER_CPR = 4096  # Counts per revolution for the reference logger (publishing to /encoder)
 
@@ -120,7 +122,12 @@ class LX16AEncoderLogger(Node):
         super().__init__('lx16a_encoder_logger')
         # Properties
         self.filename = OUT_DATA_FILENAME
-        self._data = []
+        self._data = dict()
+
+        self._data["time"] = []
+        self._data["duty"] = []
+        self._data["pos"] = []
+        self._data["count"] = []
         self._data_size = 0
 
         # Subscriptions
@@ -143,11 +150,20 @@ class LX16AEncoderLogger(Node):
         self.get_logger().info('baudrate: {}'.format(self._servo_driver.get_baudrate()))
         self.get_logger().info('timeout: {}'.format(self._servo_driver.get_timeout()))
 
+        # Register shutdown behaviour
+        rclpy.get_default_context().on_shutdown(self.shutdown)
+
+    def start_loop(self):
+        self.get_logger().info('Starting control loop at {} Hz'.format(CONTROL_FREQUENCY))
+        self.control_timer = self.create_timer( 1.0 / CONTROL_FREQUENCY, self.update)
+
     def shutdown(self):
+        self.get_logger().info('Shutdown lx16a_encoder_logger...')
+
         # Stop servo
         self.get_logger().info('Stop servo')
         self._servo_driver.motor_mode_write(SERVO_ID, 0)
-
+        
         # Write remaining data
         self.write_data()
 
@@ -157,7 +173,7 @@ class LX16AEncoderLogger(Node):
     def cmd_vel_callback(self, msg):
         self._cmd_vel_msg = msg
 
-    def update(self, event):
+    def update(self):
         # To simplify things we map the linear velocity from [-1.0, 1.0] m/s
         # to [-1000, 1000] duty, and limit it to the range.
         duty = int(1000 * self._cmd_vel_msg.linear.x)
@@ -172,22 +188,26 @@ class LX16AEncoderLogger(Node):
         self.get_logger().info("duty: {}, pos: {}, count: {}".format(duty, pos, count % REFERENCE_ENCODER_CPR))
 
         # Buffer data
-        self._data.append([get_time_secs(self), duty, pos, count])
+        self._data["time"].append(get_time_secs(self))
+        self._data["duty"].append(duty)
+        self._data["pos"].append(pos)
+        self._data["count"].append(count)
+
         self._data_size = self._data_size + 1
         if (self._data_size == LX16AEncoderLogger.DATA_BUFFER_SIZE):
             self.write_data()
 
     def write_data(self):
-        with open(self.filename, 'ab') as csvfile:
-            # Write data
-            writer = csv.writer(csvfile, delimiter=',')
-            for row in self._data:
-                writer.writerow(row)
-
-            # Reset buffer
-            self._data_size = 0
-            self._data = []
-
+        # I know... Pandas just for csv formatting?
+        dfObj = pd.DataFrame.from_dict(self._data)
+        dfObj.to_csv(OUT_DATA_FILENAME, index = False, header=True,sep='\t',mode='a')
+        
+        # Reset buffer
+        self._data["time"] = []
+        self._data["duty"] = []
+        self._data["pos"] = []
+        self._data["count"] = []
+        self._data_size = 0
 
 def main(args=None):    
     rclpy.init(args=args)    
@@ -196,19 +216,9 @@ def main(args=None):
     encoder_logger = LX16AEncoderLogger()
     encoder_logger.get_logger().info('Starting Lewansoul LX-16A encoder logger')
 
-    # Register shutdown behaviour
-    def shutdown_callback():
-        encoder_logger.get_logger().info('Shutdown lx16a_encoder_logger...')
-        encoder_logger.shutdown()
-
-    rclpy.get_default_context().on_shutdown(shutdown_callback)
-
     # Start the control loop
-    control_frequency = CONTROL_FREQUENCY
-
-    encoder_logger.get_logger().info('Starting control loop at {} Hz'.format(control_frequency))
-    control_timer = encoder_logger.create_timer( 1.0 / control_frequency, encoder_logger.update)
-
+    encoder_logger.start_loop()
+    
     rclpy.spin(encoder_logger)
 
 

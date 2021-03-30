@@ -1,7 +1,21 @@
 #!/usr/bin/env python
 
 import math
+import rclpy
 from geometry_msgs.msg import Quaternion
+
+def get_param_or_die(node,param_name):
+    if not node.has_parameter(param_name):
+        node.get_logger().fatal('Missing parameter: ' + param_name + '. Exiting...')
+    val = node.get_parameter(param_name)._value
+    return val
+
+def get_param_default(node,param_name,default):
+    if not node.has_parameter(param_name):
+        val = default
+    else:
+        val = node.get_parameter(param_name)._value
+    return val
 
 
 def get_time_secs(a_node):

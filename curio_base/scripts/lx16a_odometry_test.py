@@ -54,7 +54,7 @@ CONTROL_FREQUENCY   = 50      # Control loop frequency [Hz]
 SERVO_SERIAL_PORT   = '/dev/ttyUSB0'
 SERVO_BAUDRATE      = 115200
 SERVO_TIMEOUT       = 1.0 # [s]
-SERVO_ID            = 11
+SERVO_ID            = 1
 DATA_DIR  = './data/'
 WINDOW    = 10
 # Filename for persisted ML model

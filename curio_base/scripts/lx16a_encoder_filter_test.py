@@ -1,3 +1,6 @@
+# TODO: FINIS TRAINING TO TEST THIS
+
+
 #!/usr/bin/env python
 # 
 # coding: latin-1
@@ -54,12 +57,14 @@ from curio_base.utils import get_time_secs
 # Constants
 WINDOW = 10
 
+# TODO: find a better way to do this ...
+ROOT_FOLDER = "/home/manuel/workspace/ros2_rov/src/curio/curio_base/"
 # Raw data produced by servo and encoder 
-RAW_DATA_FILENAME = "./data/lx16a_raw_data_05.csv"
+RAW_DATA_FILENAME = ROOT_FOLDER + "data/lx16a_raw_data_05.csv"
 
 # File locations for persisted ML models
-CLASSIFIER_FILENAME = "./data/lx16a_tree_classifier.joblib"
-REGRESSOR_FILENAME  = "./data/lx16a_tree_regressor.joblib"
+CLASSIFIER_FILENAME = ROOT_FOLDER + "data/lx16a_tree_classifier.joblib"
+REGRESSOR_FILENAME  = ROOT_FOLDER + "data/lx16a_tree_regressor.joblib"
 
 def main(args=None):    
     rclpy.init(args=args) 
