@@ -3,6 +3,18 @@
 import math
 import rclpy
 from geometry_msgs.msg import Quaternion
+from enum import Enum
+
+class LatLabel(Enum):
+    # Lateral labels
+    LEFT  = 0
+    RIGHT = 1
+
+class LonLabel(Enum):
+    # Longitudinal labels
+    FRONT = 2
+    MID   = 3
+    BACK  = 4
 
 def get_param_or_die(node,param_name):
     if not node.has_parameter(param_name):
