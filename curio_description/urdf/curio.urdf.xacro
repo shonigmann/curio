@@ -7,7 +7,7 @@
 
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions
-    are met:
+    are met-
 
     1.  Redistributions of source code must retain the above copyright
         notice, this list of conditions and the following disclaimer.
@@ -35,58 +35,146 @@
     POSSIBILITY OF SUCH DAMAGE.
 -->
 
-<!-- Robot description for Curio, a Sawppy Rover robot.
-
- -->
+<!-- Robot description for Curio, a Sawppy Rover robot. -->
 <robot name="curio" xmlns:xacro="http://ros.org/wiki/xacro">
     <!-- Include macros for materials, inertials, sensors -->
     <xacro:include filename="$(find curio_description)/urdf/curio_materials.xacro"/>
     <xacro:include filename="$(find curio_description)/urdf/curio_inertials.xacro"/>
     <xacro:include filename="$(find curio_description)/urdf/curio_laser.xacro"/>
+    <xacro:include filename="$(find curio_description)/urdf/curio_realsense.xacro"/>
 
-    <!-- Gazebo plugins -->
+    <!--    Sensor Selection  -->
+    <xacro:property name="sensor_type" value="L515" />  <!-- Must be one of {RPLidar, PuckLITE, D435i, L515} -->
+
+    <!--     Gazebo plugins -->
     <gazebo>
-        <!-- ROS Control 
+        <!-- ROS Control -->
 
-            Wheel joints controlled by ackermann_drive_controller:
-                front_left_wheel_joint, front_right_wheel_joint,
-                mid_left_wheel_joint, mid_right_wheel_joint,
-                back_left_wheel_joint, back_right_wheel_joint
+        <!--            Wheel joints controlled by ackermann_drive_controller- -->
+        <!--                front_left_wheel_joint, front_right_wheel_joint,-->
+        <!--                mid_left_wheel_joint, mid_right_wheel_joint,-->
+        <!--                back_left_wheel_joint, back_right_wheel_joint-->
 
-            Steer joints controlled by ackermann_drive_controller:
-                front_left_corner_joint, front_right_corner_joint,
-                back_left_corner_joint, back_right_corner_joint,
-        -->
-        <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
-            <robotNamespace>/</robotNamespace>
-            <robotSimType>gazebo_ros_control/DefaultRobotHWSim</robotSimType>
-            <legacyModeNS>false</legacyModeNS>
-        </plugin>
+        <!--            Steer joints controlled by ackermann_drive_controller- -->
+        <!--                front_left_corner_joint, front_right_corner_joint,-->
+        <!--                back_left_corner_joint, back_right_corner_joint,-->
+        <!--        &ndash;&gt;-->
+
+        <!--        TODO- REPLACE WITH GAZEBO ROS CONTROL ONCE ACKERMANN CONTROLLER IS IMPLEMENTED.
+                          SEE- github.com/ros-controls/ros2_controllers/issues/194-->
+        <!--        ORIGINAL-->
+        <!--        <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">-->
+        <!--            <robotNamespace>/</robotNamespace>-->
+        <!--            <robotSimType>gazebo_ros_control/DefaultRobotHWSim</robotSimType>-->
+        <!--            <legacyModeNS>false</legacyModeNS>-->
+        <!--        </plugin>-->
+
+        <!--        ROS2 UPDATE-->
+        <!--        <gazebo>-->
+        <!--            <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">-->
+        <!--&lt;!&ndash;                <parameters>$(find gazebo_ros2_control_demos)/config/cartpole_controller.yaml</parameters>&ndash;&gt;-->
+        <!--            </plugin>-->
+        <!--        </gazebo>-->
+
+        <!--        GAZEBO PLUGIN REPLACEMENT-->
+        <!--        <plugin name='ackermann_drive' filename="libgazebo_ros_ackermann_drive.so">-->
+        <!--&lt;!&ndash;            <ros>&ndash;&gt;-->
+        <!--&lt;!&ndash;              <namespace>/curio</namespace>&ndash;&gt;-->
+        <!--&lt;!&ndash;              <remapping>cmd_vel:=cmd_demo</remapping>&ndash;&gt;-->
+        <!--&lt;!&ndash;              <remapping>odom:=odom_demo</remapping>&ndash;&gt;-->
+        <!--&lt;!&ndash;              <remapping>distance:=distance_demo</remapping>&ndash;&gt;-->
+        <!--&lt;!&ndash;            </ros>&ndash;&gt;-->
+
+        <!--            <update_rate>50.0</update_rate>-->
+
+        <!--            &lt;!&ndash; wheels &ndash;&gt;-->
+        <!--            <front_left_joint>front_left_wheel_joint</front_left_joint>-->
+        <!--            <front_right_joint>front_right_wheel_joint</front_right_joint>-->
+        <!--            <rear_left_joint>back_left_wheel_joint</rear_left_joint>-->
+        <!--            <rear_right_joint>back_right_wheel_joint</rear_right_joint>-->
+        <!--            <left_steering_joint>front_left_corner_joint</left_steering_joint>-->
+        <!--            <right_steering_joint>front_right_corner_joint</right_steering_joint>-->
+        <!--&lt;!&ndash;            <steering_wheel_joint></steering_wheel_joint>&ndash;&gt;-->
+
+        <!--            &lt;!&ndash; Max absolute steer angle for tyre in radians&ndash;&gt;-->
+        <!--            &lt;!&ndash; Any cmd_vel angular z greater than this would be capped &ndash;&gt;-->
+        <!--            <max_steer>${math_pi/3}</max_steer>-->
+
+        <!--            &lt;!&ndash; Max absolute steering angle of steering wheel &ndash;&gt;-->
+        <!--            <max_steering_angle>7.85</max_steering_angle>-->
+
+        <!--            &lt;!&ndash; Max absolute linear speed in m/s &ndash;&gt;-->
+        <!--            <max_speed>0.37</max_speed>-->
+
+        <!--            &lt;!&ndash; PID tuning &ndash;&gt;-->
+        <!--            <left_steering_pid_gain>1500 0 1</left_steering_pid_gain>-->
+        <!--            <left_steering_i_range>0 0</left_steering_i_range>-->
+        <!--            <right_steering_pid_gain>1500 0 1</right_steering_pid_gain>-->
+        <!--            <right_steering_i_range>0 0</right_steering_i_range>-->
+        <!--            <linear_velocity_pid_gain>1000 0 1</linear_velocity_pid_gain>-->
+        <!--            <linear_velocity_i_range>0 0</linear_velocity_i_range>-->
+
+        <!--            &lt;!&ndash; output &ndash;&gt;-->
+        <!--            <publish_odom>true</publish_odom>-->
+        <!--            <publish_odom_tf>true</publish_odom_tf>-->
+        <!--            <publish_wheel_tf>true</publish_wheel_tf>-->
+        <!--            <publish_distance>true</publish_distance>-->
+
+        <!--            <odometry_frame>/odom</odometry_frame>-->
+        <!--            <odometry_frame>/odom</odometry_frame>-->
+        <!--            <robot_base_frame>base_link</robot_base_frame>-->
+
+        <!--        </plugin>-->
+        <!--        END TODO-->
 
         <!-- Publish state of passive joints
 
-            Gazebo only links:
+            Gazebo only links-
                 left_turnbuckle_link, right_turnbuckle_link
 
-            Gazebo only joints:
+            Gazebo only joints-
                 back_left_turnbuckle_joint, back_right_turnbuckle_joint,
                 front_left_turnbuckle_joint, front_right_turnbuckle_joint
 
-            Resources:
+            Resources-
                 http://answers.gazebosim.org/question/13844/getting-joint-angles-for-passive-urdf-model/
          -->
         <plugin name="gazebo_ros_joint_state_publisher" filename="libgazebo_ros_joint_state_publisher.so">
-            <robotNamespace>/</robotNamespace>
-            <jointName>
-                left_rocker_joint, right_rocker_joint,
-                left_bogie_joint, right_bogie_joint,
-                diff_brace_joint,
-                back_left_turnbuckle_joint, back_right_turnbuckle_joint,
-                front_left_turnbuckle_joint, front_right_turnbuckle_joint
-            </jointName>
-            <updateRate>50</updateRate>
-            <alwaysOn>true</alwaysOn>
+            <!--                <robotNamespace>/</robotNamespace>-->
+            <joint_name>left_rocker_joint</joint_name>
+            <joint_name>right_rocker_joint</joint_name>
+            <joint_name>left_bogie_joint</joint_name>
+            <joint_name>right_bogie_joint</joint_name>
+            <joint_name>diff_brace_joint</joint_name>
+
+            <joint_name>front_right_turnbuckle_joint</joint_name>
+            <joint_name>front_right_wheel_joint</joint_name>
+            <joint_name>front_right_corner_joint</joint_name>
+
+            <joint_name>front_left_turnbuckle_joint</joint_name>
+            <joint_name>front_left_wheel_joint</joint_name>
+            <joint_name>front_left_corner_joint</joint_name>
+
+            <joint_name>back_right_turnbuckle_joint</joint_name>
+            <joint_name>back_right_wheel_joint</joint_name>
+            <joint_name>back_right_corner_joint</joint_name>
+
+            <joint_name>back_left_turnbuckle_joint</joint_name>
+            <joint_name>back_left_wheel_joint</joint_name>
+            <joint_name>back_left_corner_joint</joint_name>
+
+            <joint_name>mid_right_wheel_joint</joint_name>
+            <joint_name>mid_left_wheel_joint</joint_name>
+
+            <update_rate>50</update_rate>
+            <always_on>true</always_on>
+            <!--            TODO- determine if namespace or remapping is necessary-->
+            <ros>
+                <!--                    <namespace>/curio</namespace> -->
+                <remapping>~/out:=joint_states</remapping>
+            </ros>
         </plugin>
+
     </gazebo>
 
     <!-- Chassis -->
@@ -98,6 +186,15 @@
     <xacro:property name="body_box_width" value="0.285" />
     <xacro:property name="body_box_depth" value="0.093" />
     <xacro:property name="body_box_mass" value="1.0" />
+
+    <xacro:property name="body_mast_mount_length" value="0.0927" />
+    <xacro:property name="body_mast_mount_width" value="0.0927" />
+    <xacro:property name="body_mast_mount_depth" value="0.025" />
+    <xacro:property name="body_mast_mount_mass" value="0.03" />
+
+    <xacro:property name="body_mast_length" value="0.2" />
+    <xacro:property name="body_mast_radius" value="0.01375" />
+    <xacro:property name="body_mast_mass" value="0.03" />
 
     <xacro:property name="front_rocker_arm_length" value="0.182" />
     <xacro:property name="back_rocker_arm_length" value="0.161" />
@@ -112,6 +209,13 @@
     <xacro:property name="wheel_width" value="0.100" />
     <xacro:property name="wheel_radius" value="0.060" />
 
+    <!--virtual base link to avoid KML warnings of base link having inertial properties-->
+    <link name="dummy_base_link"/>
+    <joint name="dummy_base_joint" type="fixed">
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <parent link="dummy_base_link" />
+        <child link="base_link" />
+    </joint>
 
     <!-- The base link - the reference link for the entire model -->
     <link name="base_link">
@@ -128,10 +232,10 @@
                 <box size="0.01 0.01 0.01"/>
             </geometry>
         </collision>
-        <xacro:solid_cuboid_inertial 
-            rpy="0 0 0" xyz="0 0 0"
-            mass="0.01"
-            x="0.01" y="0.01" z="0.01" />
+        <xacro:solid_cuboid_inertial
+                rpy="0 0 0" xyz="0 0 0"
+                mass="0.01"
+                x="0.01" y="0.01" z="0.01" />
     </link>
 
     <gazebo reference="base_link">
@@ -142,7 +246,7 @@
         <visual>
             <origin rpy="0 0 0" xyz="0 0 0" />
             <geometry>
-                <mesh filename="package://curio_description/meshes/bases/body_box.stl" />
+                <mesh filename="file://$(find curio_description)/meshes/bases/body_box.stl" />
                 <!-- <box size="${body_box_length} ${body_box_width} ${body_box_depth}"/> -->
             </geometry>
             <material name="dark_gray" />
@@ -153,10 +257,10 @@
                 <box size="${body_box_length} ${body_box_width} ${body_box_depth}"/>
             </geometry>
         </collision>
-        <xacro:solid_cuboid_inertial 
-            rpy="0 0 0" xyz="0 0 0"
-            mass="${body_box_mass}"
-            x="${body_box_length}" y="${body_box_width}" z="${body_box_depth}" />
+        <xacro:solid_cuboid_inertial
+                rpy="0 0 0" xyz="0 0 0"
+                mass="${body_box_mass}"
+                x="${body_box_length}" y="${body_box_width}" z="${body_box_depth}" />
     </link>
 
     <gazebo reference="body_box_link">
@@ -174,16 +278,77 @@
         <!-- <preserveFixedJoint>true</preserveFixedJoint> -->
     </gazebo>
 
+    <!--    ONLY INCLUDE MAST IF USING PuckLITE, D435i, or L515 sensors; RPLidar is mounted directly to the body -->
+    <xacro:if value="${sensor_type == 'PuckLITE' or sensor_type == 'D435i' or sensor_type == 'L515'}">
+        <link name="body_mast_mount_link">
+            <visual>
+                <origin rpy="0 0 0" xyz="0 0 0" />
+                <geometry>
+                    <mesh filename="file://$(find curio_description)/meshes/bases/body_mast_mount.stl" />
+                </geometry>
+                <material name="gray" />
+            </visual>
+            <collision>
+                <origin rpy="0 0 0" xyz="0 0 0" />
+                <geometry>
+                    <box size="${body_mast_mount_length} ${body_mast_mount_width} ${body_mast_mount_depth}"/>
+                </geometry>
+            </collision>
+            <xacro:solid_cuboid_inertial
+                    rpy="0 0 0" xyz="0 0 0"
+                    mass="${body_mast_mount_mass}"
+                    x="${body_mast_mount_length}" y="${body_mast_mount_width}" z="${body_mast_mount_depth}" />
+        </link>
+
+        <gazebo reference="body_mast_mount_link">
+            <material>Gazebo/Gray</material>
+        </gazebo>
+
+        <joint name="body_mast_mount_joint" type="fixed">
+            <origin rpy="0 0 ${math_pi}" xyz="0.167 0.099 0.043"/>
+            <parent link="body_box_link" />
+            <child link="body_mast_mount_link" />
+        </joint>
+
+        <link name="body_mast_link">
+            <visual>
+                <origin rpy="0 0 0" xyz="0 0 0" />
+                <geometry>
+                    <cylinder radius="${body_mast_radius}" length="${body_mast_length}"/>
+                </geometry>
+                <material name="dark_gray" />
+            </visual>
+            <collision>
+                <origin rpy="0 0 0" xyz="0 0 0" />
+                <geometry>
+                    <cylinder radius="${body_mast_radius}" length="${body_mast_length}"/>
+                </geometry>
+            </collision>
+            <xacro:solid_cylinder_inertial
+                    rpy="0 0 0" xyz="0 0 0"
+                    mass="${body_mast_mass}"
+                    radius="${body_mast_radius}" length="${body_mast_length}" />
+        </link>
+        <gazebo reference="body_mast_link">
+            <material>Gazebo/DarkGray</material>
+        </gazebo>
+        <joint name="body_mast_joint" type="fixed">
+            <origin rpy="0 0 0" xyz="0.0065 0.006 ${body_mast_length/2-0.0125}"/>
+            <parent link="body_mast_mount_link" />
+            <child link="body_mast_link" />
+        </joint>
+    </xacro:if>
+
     <!-- Differential -->
     <link name="diff_brace_link">
         <visual>
             <origin rpy="0 0 0" xyz="0 0 0" />
             <!-- <origin rpy="0 0 ${math_pi_over_2}" xyz="0 0 0" /> -->
             <geometry>
-                <mesh filename="package://curio_description/meshes/bases/differential.stl" />
+                <mesh filename="file://$(find curio_description)/meshes/bases/differential.stl" />
                 <!-- <box size="0.200 0.015 0.015"/> -->
             </geometry>
-            <material name="dark_gray" />
+            <material name="gray" />
         </visual>
         <collision>
             <origin rpy="0 0 ${math_pi_over_2}" xyz="0 0 0" />
@@ -191,24 +356,24 @@
                 <box size="0.200 0.015 0.015"/>
             </geometry>
         </collision>
-        <xacro:solid_cuboid_inertial 
-            rpy="0 0 ${math_pi_over_2}" xyz="0 0 0"
-            mass="0.1"
-            x="0.2" y="0.015" z="0.015" />
+        <xacro:solid_cuboid_inertial
+                rpy="0 0 ${math_pi_over_2}" xyz="0 0 0"
+                mass="0.1"
+                x="0.2" y="0.015" z="0.015" />
     </link>
 
     <gazebo reference="diff_brace_link">
-        <material>Gazebo/DarkGray</material>
+        <material>Gazebo/Gray</material>
     </gazebo>
 
     <joint name="diff_brace_joint" type="revolute">
         <origin rpy="0 0 0" xyz="0 0 0.0681"/>
         <axis xyz="0 0 1" />
-        <limit 
-            lower="${-math_pi_over_4}"
-            upper="${math_pi_over_4}"
-            effort="100.0"
-            velocity="100.0" />
+        <limit
+                lower="${-math_pi_over_4}"
+                upper="${math_pi_over_4}"
+                effort="100.0"
+                velocity="100.0" />
         <parent link="base_link" />
         <child link="diff_brace_link" />
     </joint>
@@ -222,7 +387,7 @@
 
     <!-- Turnbuckle linkages between the differential and rockers
     
-        Note: URDF does not support closed loops in the robot description,
+        Note- URDF does not support closed loops in the robot description,
         whereas SDF for Gazebo does.
 
         These links and joints are for Gazebo only and close the kinematic chain
@@ -231,12 +396,12 @@
     <xacro:macro name="turnbuckle_assembly" params="lat_label reflect">
         <gazebo>
             <link name="${lat_label}_turnbuckle_link">
-                <pose>0.035 ${reflect * 0.17} 0.07 0 0 0</pose>
+                <pose>0.0375 ${reflect * 0.165} 0.07 0 -0.08 ${-reflect * 0.15}</pose>
                 <visual name="${lat_label}_turnbuckle_visual">
                     <pose>0 0 0 0 0 0</pose>
                     <geometry>
                         <mesh>
-                            <uri>package://curio_description/meshes/bases/turnbuckle.stl</uri>
+                            <uri>file://$(find curio_description)/meshes/bases/turnbuckle.stl</uri>
                         </mesh>
                         <!-- <cylinder>
                             <length>0.07</length>
@@ -244,9 +409,7 @@
                         </cylinder> -->
                     </geometry>
                     <material>
-                        <script>
-                            <name>Gazebo/Blue</name>
-                        </script>
+                        <script>Gazebo/Blue</script>
                     </material>
                 </visual>
                 <collision name="${lat_label}_turnbuckle_collision">
@@ -283,9 +446,14 @@
                 <child>${lat_label}_turnbuckle_link</child>
             </joint>
         </gazebo>
+        <gazebo reference="${lat_label}_turnbuckle_link">
+            <material>Gazebo/Blue</material>
+        </gazebo>
     </xacro:macro>
     <xacro:turnbuckle_assembly lat_label="left" reflect="1"/>
     <xacro:turnbuckle_assembly lat_label="right" reflect="-1"/>
+
+
 
     <!-- Rocker -->
     <xacro:macro name="rocker_link" params="lat_label reflect">
@@ -293,10 +461,10 @@
             <visual>
                 <origin rpy="0 0 0" xyz="0 0 0" />
                 <geometry>
-                    <mesh filename="package://curio_description/meshes/bases/${lat_label}_rocker_asm.stl" />
+                    <mesh filename="file://$(find curio_description)/meshes/bases/${lat_label}_rocker_asm.stl" />
                     <!-- <box size="0.1 0.015 0.015"/> -->
                 </geometry>
-                <material name="dark_gray" />
+                <material name="gray" />
             </visual>
             <collision>
                 <origin rpy="0 0 0" xyz="0 0 0" />
@@ -304,14 +472,14 @@
                     <box size="0.1 0.015 0.015"/>
                 </geometry>
             </collision>
-            <xacro:solid_cuboid_inertial 
-                rpy="0 0 0" xyz="0 0 0"
-                mass="0.25"
-                x="0.1" y="0.015" z="0.015" />
-        </link> 
+            <xacro:solid_cuboid_inertial
+                    rpy="0 0 0" xyz="0 0 0"
+                    mass="0.25"
+                    x="0.1" y="0.015" z="0.015" />
+        </link>
 
         <gazebo reference="${lat_label}_rocker_link">
-            <material>Gazebo/DarkGray</material>
+            <material>Gazebo/Gray</material>
         </gazebo>
 
     </xacro:macro>
@@ -323,11 +491,11 @@
         <joint name="${lat_label}_rocker_joint" type="continuous">
             <origin rpy="0 0 0" xyz="0.071 ${reflect * 0.155} 0.0118"/>
             <axis xyz="0 1 0" />
-            <limit 
-                lower="${-math_pi_over_4}"
-                upper="${math_pi_over_4}"
-                effort="100.0"
-                velocity="100.0" />
+            <limit
+                    lower="${-math_pi_over_4}"
+                    upper="${math_pi_over_4}"
+                    effort="100.0"
+                    velocity="100.0" />
             <parent link="base_link" />
             <child link="${lat_label}_rocker_link" />
         </joint>
@@ -360,10 +528,10 @@
             <visual>
                 <origin rpy="0 0 0" xyz="0 0 0" />
                 <geometry>
-                    <mesh filename="package://curio_description/meshes/bases/${lon_label}_${lat_label}_steering_asm.stl" />
+                    <mesh filename="file://$(find curio_description)/meshes/bases/${lon_label}_${lat_label}_steering_asm.stl" />
                     <!-- <box size="0.1 0.1 0.1"/> -->
                 </geometry>
-                <material name="dark_gray" />
+                <material name="gray" />
             </visual>
             <collision>
                 <origin rpy="0 0 0" xyz="0 0 0" />
@@ -371,14 +539,14 @@
                     <box size="0.1 0.1 0.1"/>
                 </geometry>
             </collision>
-            <xacro:solid_cuboid_inertial 
-                rpy="0 0 0" xyz="0 0 0"
-                mass="0.25"
-                x="0.1" y="0.1" z="0.1" />
-        </link> 
+            <xacro:solid_cuboid_inertial
+                    rpy="0 0 0" xyz="0 0 0"
+                    mass="0.25"
+                    x="0.1" y="0.1" z="0.1" />
+        </link>
 
         <gazebo reference="${lon_label}_${lat_label}_corner_link">
-            <material>Gazebo/DarkGray</material>
+            <material>Gazebo/Gray</material>
         </gazebo>
     </xacro:macro>
     <xacro:corner_link lon_label="front" lat_label="left" reflect="1"/>
@@ -414,7 +582,7 @@
             <visual>
                 <origin rpy="${reflect * math_pi_over_2} 0 0" xyz="0 0 0" />
                 <geometry>
-                    <mesh filename="package://curio_description/meshes/wheels/wheel_asm.stl" />
+                    <mesh filename="file://$(find curio_description)/meshes/wheels/wheel_asm.stl" />
                 </geometry>
                 <material name="dark_gray" />
             </visual>
@@ -425,10 +593,10 @@
                 </geometry>
             </collision>
             <xacro:solid_cylinder_inertial
-                rpy="0 0 0" xyz="0 0 0"
-                mass="0.25"
-                radius="${wheel_radius}" length="${wheel_width}" />
-        </link>    
+                    rpy="0 0 0" xyz="0 0 0"
+                    mass="0.25"
+                    radius="${wheel_radius}" length="${wheel_width}" />
+        </link>
 
         <gazebo reference="${lon_label}_${lat_label}_wheel_link">
             <material>Gazebo/DarkGray</material>
@@ -468,10 +636,10 @@
             <visual>
                 <origin rpy="0 0 0" xyz="0 0 0" />
                 <geometry>
-                    <mesh filename="package://curio_description/meshes/bases/${lat_label}_bogie_asm.stl" />
+                    <mesh filename="file://$(find curio_description)/meshes/bases/${lat_label}_bogie_asm.stl" />
                     <!-- <box size="0.1 0.015 0.015"/> -->
                 </geometry>
-                <material name="dark_gray" />
+                <material name="gray" />
             </visual>
             <collision>
                 <origin rpy="0 0 0" xyz="0 0 0" />
@@ -479,14 +647,14 @@
                     <box size="0.1 0.015 0.015"/>
                 </geometry>
             </collision>
-            <xacro:solid_cuboid_inertial 
-                rpy="0 0 0" xyz="0 0 0"
-                mass="0.25"
-                x="0.1" y="0.015" z="0.015" />
+            <xacro:solid_cuboid_inertial
+                    rpy="0 0 0" xyz="0 0 0"
+                    mass="0.25"
+                    x="0.1" y="0.015" z="0.015" />
         </link>
 
         <gazebo reference="${lat_label}_bogie_link">
-            <material>Gazebo/DarkGray</material>
+            <material>Gazebo/Gray</material>
         </gazebo>
     </xacro:macro>
     <xacro:bogie_link lat_label="left" reflect="1"/>
@@ -497,11 +665,11 @@
         <joint name="${lat_label}_bogie_joint" type="revolute">
             <origin rpy="0 0 0" xyz="-0.181 ${reflect * 0.025} -0.062"/>
             <axis xyz="0 1 0" />
-            <limit 
-                lower="${-math_pi_over_4}"
-                upper="${math_pi_over_4}"
-                effort="100.0"
-                velocity="100.0" />
+            <limit
+                    lower="${-math_pi_over_4}"
+                    upper="${math_pi_over_4}"
+                    effort="100.0"
+                    velocity="100.0" />
             <parent link="${lat_label}_rocker_link" />
             <child link="${lat_label}_bogie_link" />
         </joint>
@@ -591,8 +759,18 @@
     <xacro:corner_wheel_joint lon_label="back" lat_label="left" reflect="1"/>
     <xacro:corner_wheel_joint lon_label="back" lat_label="right" reflect="-1"/>
 
-    <!-- Laser Scan Sensor -->
-    <xacro:laser_link />
-    <xacro:laser_joint x="0.152" y="0.078" z="0.050" />
+    <!-- Scan Sensor: Select One Option Based on sensor_type xacro parameter {RPLidar, PuckLITE, D435i, L515} -->
+    <xacro:if value="${sensor_type == 'RPLidar'}">
+        <xacro:laser_link_2d x="0.152" y="0.078" z="0.050" />
+    </xacro:if>
+    <xacro:if value="${sensor_type == 'PuckLITE'}">
+        <xacro:laser_link_3d x="0.0" y="0.0" z="${body_mast_length/2}" />
+    </xacro:if>
+    <xacro:if value="${sensor_type == 'D435i'}">
+        <xacro:realsense_d435i x="0.0" y="0.0" z="${body_mast_length/2}" />
+    </xacro:if>
+    <xacro:if value="${sensor_type == 'L515'}">
+        <xacro:realsense_l515 x="0.0" y="0.0" z="${body_mast_length/2}" />
+    </xacro:if>
 
 </robot>

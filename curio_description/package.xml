@@ -1,16 +1,20 @@
 <?xml version="1.0"?>
-<package format="2">
-    <name>curio_description</name>
-    <version>0.2.2</version>
-    <description>URDF and meshes for Curio, a Sawppy Rover</description>
-    <maintainer email="rhys.maiwaring@me.com">Rhys Mainwaring</maintainer>
-    <license>BSD-3-Clause</license>
-    <url type="website">https://github.com/srmainwaring/curio</url>
-    <url type="repository">https://github.com/srmainwaring/curio</url>
-    <url type="bugtracker">https://github.com/srmainwaring/curio/issues</url>
-    <author email="rhys.maiwaring@me.com">Rhys Mainwaring</author>
-    <buildtool_depend>catkin</buildtool_depend>
-    <depend>urdf</depend>
-    <depend>xacro</depend>
-    <exec_depend>roslaunch</exec_depend>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>curio_description</name>
+  <version>0.0.1</version>
+  <description>ROS2 port of the urdf for Curio, a Sawppy Rover</description>
+  <maintainer email="simonhonigmann@gmail.com">Simon Honigmann</maintainer>
+  <license>BSD3</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>urdf</depend>
+  <depend>xacro</depend>
+  <depend>launch_ros</depend>
+  <exec_depend>realsense2_description</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
 </package>

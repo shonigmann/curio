@@ -1,21 +1,10 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.5)
 project(curio_description)
 
-find_package(catkin REQUIRED COMPONENTS
-    urdf
-    xacro
-)
+find_package(ament_cmake REQUIRED)
 
-catkin_package(
-    CATKIN_DEPENDS
-        urdf
-        xacro
-)
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY meshes DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY urdf DESTINATION share/${PROJECT_NAME})
 
-include_directories(
-    ${catkin_INCLUDE_DIRS}
-)
-
-install(DIRECTORY launch meshes urdf
-    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-)
+ament_package()

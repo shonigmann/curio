@@ -7,7 +7,7 @@
 
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions
-    are met:
+    are met-
 
     1.  Redistributions of source code must retain the above copyright
         notice, this list of conditions and the following disclaimer.
@@ -37,8 +37,7 @@
 
 <!--  xacro macros for intertials.
 
-    Define xacro macros for math constants and inertials:
-    
+    Define xacro macros for math constants and inertials-
     - solid cuboid
     - solid cylinder
     - null (a placeholder inertial for logical link elements)

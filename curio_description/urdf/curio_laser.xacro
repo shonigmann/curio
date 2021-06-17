@@ -7,7 +7,7 @@
 
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions
-    are met:
+    are met -
 
     1.  Redistributions of source code must retain the above copyright
         notice, this list of conditions and the following disclaimer.
@@ -35,18 +35,19 @@
     POSSIBILITY OF SUCH DAMAGE.
 -->
 
-<!--  xacro macros for laser sensor (rplidar_a1).
-
- -->
+<!--  xacro macros for laser sensor (rplidar_a1) -->
 <robot name="curio_laser" xmlns:xacro="http://ros.org/wiki/xacro">
-    <xacro:macro name="laser_link"> 
+
+<!--    2D Laser Sensor    -->
+<!--    Parameters based on Turtlebot3 Laser Range Finder-->
+    <xacro:macro name="laser_link_2d" params="x y z parent='base_link'">
         <link name="laser">
             <visual>
                 <origin rpy="0 0 0" xyz="0 0 0" />
                 <geometry>
-                    <mesh filename="package://curio_description/meshes/sensors/rplidar_a1_assembly_low.stl" />
+                    <mesh filename="file://$(find curio_description)/meshes/sensors/rplidar_a1_assembly_low.stl" />
                 </geometry>
-                <material name="white" />
+                <material name="dark_gray" />
             </visual>
             <collision>
                 <origin rpy="0 0 0" xyz="0 0 0" />
@@ -57,16 +58,16 @@
             <xacro:solid_cylinder_inertial rpy="0 0 0" xyz="0 0 0"
                 mass="0.150" length="0.06" radius="0.035" />
         </link>
+        <link name="scan_frame"/>
+        <gazebo reference="scan_frame">
+            <material>Gazebo/DarkGray</material>
 
-        <gazebo reference="laser">
-            <material>Gazebo/White</material>
-
-            <sensor type="ray" name="laser_sensor">
+            <sensor type="ray" name="ray">
                 <always_on>true</always_on>
                 <update_rate>5</update_rate>
                 <visualize>false</visualize>
-                <topic>sensors/laser</topic>
-                <pose>0 0 0.045 0 0 0</pose>
+<!--                <topic>sensors/laser</topic>-->
+                <pose>0 0 0 0 0 0</pose>
                 <ray>
                     <scan>
                         <horizontal>
@@ -83,9 +84,9 @@
                         </vertical>
                     </scan>
                     <range>
-                        <min>0.1</min>
+                        <min>0.2</min>
                         <max>12.0</max>
-                        <resolution>0.05</resolution>
+                        <resolution>0.01</resolution>
                     </range>
                     <noise>
                         <type>gaussian</type>
@@ -93,22 +94,125 @@
                         <stddev>0.01</stddev>
                     </noise>
                 </ray>
-                <plugin filename="libgazebo_ros_laser.so" name="gazebo_ros_laser">
-                    <frameName>laser</frameName>
-                    <topicName>sensors/laser</topicName>
+                <plugin filename="libgazebo_ros_ray_sensor.so" name="laserscan">
+                    <ros>
+                      <namespace>/ray</namespace>
+                      <remapping>~/out:=sensors/laser</remapping>
+                    </ros>
+                    <output_type>sensor_msgs/LaserScan</output_type>
+                    <frame_name>scan_frame</frame_name>
                 </plugin>
             </sensor>
         </gazebo>
-    </xacro:macro>
 
-    <xacro:macro name="laser_joint" params="x y z" > 
         <joint name="laser_joint" type="fixed">
             <origin rpy="0 0 0" xyz="${x} ${y} ${z}"/>
-            <parent link="base_link" />
+            <parent link="${parent}" />
+            <child link="laser" />
+        </joint>
+        <joint name="scan_frame_joint" type="fixed">
+            <origin rpy="0 0 0" xyz="-0.00775 0 0.05325"/>
+            <parent link="laser" />
+            <child link="scan_frame" />
+        </joint>
+
+        <gazebo reference="sensor_joint">
+            <preserveFixedJoint>true</preserveFixedJoint>
+        </gazebo>
+    </xacro:macro>
+
+<!--    3D Laser Sensor    -->
+<!--    Parameters based on Velodyne Puck Lite-->
+    <xacro:macro name="laser_link_3d" params="x y z parent='body_mast_link'">
+        <link name="laser">
+            <visual>
+                <origin rpy="0 0 0" xyz="0 0 0" />
+                <geometry>
+                    <cylinder length="0.0717" radius="0.05016666"/>
+                </geometry>
+                <material name="gray" />
+            </visual>
+            <collision>
+                <origin rpy="0 0 0" xyz="0 0 0" />
+                <geometry>
+                    <cylinder length="0.0717" radius="0.05016666"/>
+                </geometry>
+            </collision>
+            <xacro:solid_cylinder_inertial rpy="0 0 0" xyz="0 0 0"
+                mass="0.590" length="0.0717" radius="0.05016666" />
+        </link>
+        <link name="laser_vis">
+            <visual>
+                <origin rpy="0 0 0" xyz="0 0 0" />
+                <geometry>
+                    <cylinder length="0.0381" radius="0.0502"/>
+                </geometry>
+                <material name="black" />
+            </visual>
+        </link>
+
+        <gazebo reference="laser">
+            <material>Gazebo/Gray</material>
+
+            <sensor type="ray" name="ray">
+                <always_on>true</always_on>
+                <update_rate>5</update_rate>
+                <visualize>false</visualize>
+<!--                <topic>sensors/laser</topic>-->
+                <pose>0 0 0.0 0 0 0</pose>
+                <ray>
+                    <scan>
+                        <horizontal>
+                            <samples>360</samples>
+                            <resolution>.4</resolution>
+                            <min_angle>0</min_angle>
+                            <max_angle>${math_pi * 2.0}</max_angle>
+                        </horizontal>
+                        <vertical>
+                            <samples>15</samples>
+                            <resolution>2</resolution>
+                            <min_angle>-0.2618</min_angle>
+                            <max_angle>0.2618</max_angle>
+                        </vertical>
+                    </scan>
+                    <range>
+                        <min>0.1</min>
+                        <max>100.0</max>
+                        <resolution>0.06</resolution>
+                    </range>
+                    <noise>
+                        <type>gaussian</type>
+                        <mean>0.0</mean>
+                        <stddev>0.03</stddev>
+                    </noise>
+                </ray>
+                <plugin filename="libgazebo_ros_ray_sensor.so" name="laserscan">
+                    <ros>
+                      <namespace>/ray</namespace>
+                      <remapping>~/out:=sensors/laser</remapping>
+                    </ros>
+                    <output_type>sensor_msgs/PointCloud2</output_type>
+                    <frame_name>laser</frame_name>
+                </plugin>
+            </sensor>
+        </gazebo>
+
+        <gazebo reference="laser_vis">
+            <material>Gazebo/Black</material>
+        </gazebo>
+        <joint name="laser_joint" type="fixed">
+            <origin rpy="0 0 0" xyz="${x} ${y} ${z + 0.03585}"/>
+            <parent link="${parent}" />
             <child link="laser" />
         </joint>
 
-        <gazebo reference="laser_joint">
+        <joint name="laser_joint_vis" type="fixed">
+            <origin rpy="0 0 0" xyz="0 0 0"/>
+            <parent link="laser" />
+            <child link="laser_vis" />
+        </joint>
+
+        <gazebo reference="sensor_joint">
             <preserveFixedJoint>true</preserveFixedJoint>
         </gazebo>
     </xacro:macro>

@@ -1,4 +1,4 @@
-from setuptools import setup
+rom setuptools import setup
 from glob import glob
 import os
 
